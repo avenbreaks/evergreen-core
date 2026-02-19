@@ -30,12 +30,30 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/forum/posts/:postId/comments`
   - `PATCH /api/forum/comments/:commentId`
   - `DELETE /api/forum/comments/:commentId`
+  - `POST /api/forum/reactions/toggle`
+  - `POST /api/forum/shares`
+  - `POST /api/forum/bookmarks/toggle`
+  - `POST /api/forum/follows/toggle`
+  - `POST /api/forum/posts/:postId/pin`
+  - `POST /api/forum/reports`
+  - `POST /api/forum/mod/posts/:postId/lock`
+  - `GET /api/notifications`
+  - `PATCH /api/notifications/:notificationId/read`
+  - `PATCH /api/profile/me`
   - `GET /api/forum/posts/:postId/drafts/me`
   - `PUT /api/forum/posts/:postId/drafts/me`
   - `DELETE /api/forum/posts/:postId/drafts/me`
 - Forum public:
+  - `GET /api/forum/feed`
+  - `GET /api/forum/search`
+  - `GET /api/forum/trending-tags`
+  - `GET /api/forum/top-active`
+  - `GET /api/forum/top-topics`
+  - `GET /api/forum/top-discussion`
   - `GET /api/forum/posts`
   - `GET /api/forum/posts/:postId`
+  - `GET /api/profile/:userId`
+  - `GET /api/profile/:userId/analytics`
 - ENS internal maintenance:
   - `POST /api/internal/ens/intents/:intentId/retry` (auth via `x-internal-secret`)
   - `POST /api/internal/ens/intents/:intentId/expire` (auth via `x-internal-secret`)
