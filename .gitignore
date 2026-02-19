@@ -19,4 +19,5 @@ coverage/
 secrets/
 .secrets/
 
-docs/frontend-abis/
+PLAN.md
+docs/
