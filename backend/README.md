@@ -28,6 +28,7 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/internal/ens/reconcile` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/reconciliation/run` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/tx-watcher/run` (auth via `x-internal-secret`)
+  - `POST /api/internal/workers/identity-sync/run` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/webhook-retry/run` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/ops-retention/run` (auth via `x-internal-secret`)
   - `GET /api/internal/workers/status` (auth via `x-internal-secret`)
@@ -128,6 +129,14 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `ENS_TX_WATCHER_LIMIT`
 - Watcher memeriksa intent `prepared/committed/registerable` untuk fallback saat webhook telat/hilang.
 - Watcher juga memakai Postgres advisory lock agar tidak ada overlap run antar instance backend.
+
+## ENS identity sync worker
+- Optional background sync worker bisa diaktifkan via env:
+  - `ENS_IDENTITY_SYNC_INTERVAL_MS` (`0` untuk disable)
+  - `ENS_IDENTITY_SYNC_LIMIT`
+  - `ENS_IDENTITY_SYNC_STALE_MINUTES`
+- Worker memvalidasi ownership dan expiry ENS domain yang sudah terdaftar (`ens_identities`) agar status tetap sinkron dengan on-chain.
+- Worker juga memakai Postgres advisory lock agar tidak ada overlap run antar instance backend.
 
 ## Ops retention cleanup
 - Optional background cleanup bisa diaktifkan via env:

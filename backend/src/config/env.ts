@@ -65,6 +65,9 @@ const envSchema = z.object({
   ENS_RECONCILIATION_STALE_MINUTES: z.coerce.number().int().positive().default(15),
   ENS_TX_WATCHER_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
   ENS_TX_WATCHER_LIMIT: z.coerce.number().int().positive().default(100),
+  ENS_IDENTITY_SYNC_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
+  ENS_IDENTITY_SYNC_LIMIT: z.coerce.number().int().positive().default(100),
+  ENS_IDENTITY_SYNC_STALE_MINUTES: z.coerce.number().int().positive().default(60),
   OPS_RETENTION_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
   OPS_RETENTION_BATCH_LIMIT: z.coerce.number().int().positive().default(500),
   OPS_WEBHOOK_PROCESSED_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
@@ -122,6 +125,9 @@ export type BackendEnv = {
   ensReconciliationStaleMinutes: number;
   ensTxWatcherIntervalMs: number;
   ensTxWatcherLimit: number;
+  ensIdentitySyncIntervalMs: number;
+  ensIdentitySyncLimit: number;
+  ensIdentitySyncStaleMinutes: number;
   opsRetentionIntervalMs: number;
   opsRetentionBatchLimit: number;
   opsWebhookProcessedRetentionDays: number;
@@ -156,6 +162,9 @@ export const backendEnv: BackendEnv = {
   ensReconciliationStaleMinutes: parsed.data.ENS_RECONCILIATION_STALE_MINUTES,
   ensTxWatcherIntervalMs: parsed.data.ENS_TX_WATCHER_INTERVAL_MS,
   ensTxWatcherLimit: parsed.data.ENS_TX_WATCHER_LIMIT,
+  ensIdentitySyncIntervalMs: parsed.data.ENS_IDENTITY_SYNC_INTERVAL_MS,
+  ensIdentitySyncLimit: parsed.data.ENS_IDENTITY_SYNC_LIMIT,
+  ensIdentitySyncStaleMinutes: parsed.data.ENS_IDENTITY_SYNC_STALE_MINUTES,
   opsRetentionIntervalMs: parsed.data.OPS_RETENTION_INTERVAL_MS,
   opsRetentionBatchLimit: parsed.data.OPS_RETENTION_BATCH_LIMIT,
   opsWebhookProcessedRetentionDays: parsed.data.OPS_WEBHOOK_PROCESSED_RETENTION_DAYS,

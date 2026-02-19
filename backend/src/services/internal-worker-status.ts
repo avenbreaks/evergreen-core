@@ -15,9 +15,11 @@ const INTENT_TRACKED_STATUSES = [
 ] as const;
 
 const WEBHOOK_TRACKED_STATUSES = ["processing", "processed", "failed", "dead_letter"] as const;
+const IDENTITY_TRACKED_STATUSES = ["pending", "active", "failed", "revoked"] as const;
 
 type IntentStatus = (typeof INTENT_TRACKED_STATUSES)[number];
 type WebhookStatus = (typeof WEBHOOK_TRACKED_STATUSES)[number];
+type IdentityStatus = (typeof IDENTITY_TRACKED_STATUSES)[number];
 
 export type InternalWorkerStatusSummary = {
   intents: {
@@ -35,6 +37,12 @@ export type InternalWorkerStatusSummary = {
     failed: number;
     deadLetter: number;
     retryReady: number;
+  };
+  identities: {
+    pending: number;
+    active: number;
+    failed: number;
+    revoked: number;
   };
   runtimeMetrics: ReturnType<typeof getOpsMetricsSnapshot>;
   generatedAt: Date;
@@ -72,10 +80,25 @@ const buildWebhookStatusMap = (rows: Array<{ status: WebhookStatus; total: numbe
   return map;
 };
 
+const buildIdentityStatusMap = (rows: Array<{ status: IdentityStatus; total: number }>) => {
+  const map: Record<IdentityStatus, number> = {
+    pending: 0,
+    active: 0,
+    failed: 0,
+    revoked: 0,
+  };
+
+  for (const row of rows) {
+    map[row.status] = row.total;
+  }
+
+  return map;
+};
+
 export const getInternalWorkerStatusSummary = async (): Promise<InternalWorkerStatusSummary> => {
   const now = new Date();
 
-  const [intentStatusRows, webhookStatusRows, retryReadyRows] = await Promise.all([
+  const [intentStatusRows, webhookStatusRows, identityStatusRows, retryReadyRows] = await Promise.all([
     authDb
       .select({
         status: schema.ensPurchaseIntents.status,
@@ -94,6 +117,14 @@ export const getInternalWorkerStatusSummary = async (): Promise<InternalWorkerSt
       .groupBy(schema.ensWebhookEvents.status),
     authDb
       .select({
+        status: schema.ensIdentities.status,
+        total: count(),
+      })
+      .from(schema.ensIdentities)
+      .where(inArray(schema.ensIdentities.status, IDENTITY_TRACKED_STATUSES))
+      .groupBy(schema.ensIdentities.status),
+    authDb
+      .select({
         total: count(),
       })
       .from(schema.ensWebhookEvents)
@@ -107,6 +138,7 @@ export const getInternalWorkerStatusSummary = async (): Promise<InternalWorkerSt
 
   const intentStatusMap = buildIntentStatusMap(intentStatusRows as Array<{ status: IntentStatus; total: number }>);
   const webhookStatusMap = buildWebhookStatusMap(webhookStatusRows as Array<{ status: WebhookStatus; total: number }>);
+  const identityStatusMap = buildIdentityStatusMap(identityStatusRows as Array<{ status: IdentityStatus; total: number }>);
 
   return {
     intents: {
@@ -124,6 +156,12 @@ export const getInternalWorkerStatusSummary = async (): Promise<InternalWorkerSt
       failed: webhookStatusMap.failed,
       deadLetter: webhookStatusMap.dead_letter,
       retryReady: retryReadyRows[0]?.total ?? 0,
+    },
+    identities: {
+      pending: identityStatusMap.pending,
+      active: identityStatusMap.active,
+      failed: identityStatusMap.failed,
+      revoked: identityStatusMap.revoked,
     },
     runtimeMetrics: getOpsMetricsSnapshot(),
     generatedAt: now,

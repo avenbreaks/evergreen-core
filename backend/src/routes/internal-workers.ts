@@ -7,6 +7,7 @@ import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
 type InternalWorkersRouteDependencies = {
   runEnsReconciliationOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number; dryRun?: boolean }) => Promise<unknown>;
   runEnsTxWatcherOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
+  runEnsIdentitySyncOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number }) => Promise<unknown>;
   runEnsWebhookRetryOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
   runOpsRetentionOnce: (app: unknown, input?: {
     batchLimit?: number;
@@ -30,6 +31,11 @@ const runLimitBodySchema = z.object({
   limit: z.coerce.number().int().positive().max(500).optional(),
 });
 
+const runIdentitySyncBodySchema = z.object({
+  limit: z.coerce.number().int().positive().max(500).optional(),
+  staleMinutes: z.coerce.number().int().positive().max(7 * 24 * 60).optional(),
+});
+
 const runOpsRetentionBodySchema = z.object({
   batchLimit: z.coerce.number().int().positive().max(5000).optional(),
   processedRetentionDays: z.coerce.number().int().positive().max(365).optional(),
@@ -46,6 +52,7 @@ const hasCompleteDependencies = (
   return (
     typeof deps.runEnsReconciliationOnce === "function" &&
     typeof deps.runEnsTxWatcherOnce === "function" &&
+    typeof deps.runEnsIdentitySyncOnce === "function" &&
     typeof deps.runEnsWebhookRetryOnce === "function" &&
     typeof deps.runOpsRetentionOnce === "function" &&
     typeof deps.getInternalWorkerStatusSummary === "function"
@@ -53,9 +60,10 @@ const hasCompleteDependencies = (
 };
 
 const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependencies> => {
-  const [reconciliationJob, txWatcherJob, webhookRetryJob, opsRetentionJob, workerStatusService] = await Promise.all([
+  const [reconciliationJob, txWatcherJob, identitySyncJob, webhookRetryJob, opsRetentionJob, workerStatusService] = await Promise.all([
     import("../jobs/ens-reconciliation"),
     import("../jobs/ens-tx-watcher"),
+    import("../jobs/ens-identity-sync"),
     import("../jobs/ens-webhook-retry"),
     import("../jobs/ops-retention"),
     import("../services/internal-worker-status"),
@@ -64,6 +72,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
   return {
     runEnsReconciliationOnce: reconciliationJob.runEnsReconciliationOnce as InternalWorkersRouteDependencies["runEnsReconciliationOnce"],
     runEnsTxWatcherOnce: txWatcherJob.runEnsTxWatcherOnce as InternalWorkersRouteDependencies["runEnsTxWatcherOnce"],
+    runEnsIdentitySyncOnce: identitySyncJob.runEnsIdentitySyncOnce as InternalWorkersRouteDependencies["runEnsIdentitySyncOnce"],
     runEnsWebhookRetryOnce: webhookRetryJob.runEnsWebhookRetryOnce as InternalWorkersRouteDependencies["runEnsWebhookRetryOnce"],
     runOpsRetentionOnce: opsRetentionJob.runOpsRetentionOnce as InternalWorkersRouteDependencies["runOpsRetentionOnce"],
     getInternalWorkerStatusSummary: workerStatusService.getInternalWorkerStatusSummary,
@@ -132,6 +141,26 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
       return {
         acknowledged: true,
         worker: "webhook-retry",
+        run,
+      };
+    }
+  );
+
+  app.post(
+    "/api/internal/workers/identity-sync/run",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
+    },
+    async (request) => {
+      const body = runIdentitySyncBodySchema.parse(request.body ?? {});
+      const run = await deps.runEnsIdentitySyncOnce(app, {
+        limit: body.limit,
+        staleMinutes: body.staleMinutes,
+      });
+
+      return {
+        acknowledged: true,
+        worker: "identity-sync",
         run,
       };
     }

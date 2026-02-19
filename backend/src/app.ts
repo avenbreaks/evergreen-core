@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import { ZodError } from "zod";
 
 import { backendEnv } from "./config/env";
+import { registerEnsIdentitySyncJob } from "./jobs/ens-identity-sync";
 import { registerEnsReconciliationJob } from "./jobs/ens-reconciliation";
 import { registerEnsWebhookRetryJob } from "./jobs/ens-webhook-retry";
 import { registerEnsTxWatcherJob } from "./jobs/ens-tx-watcher";
@@ -79,6 +80,7 @@ export const buildApp = () => {
   registerEnsReconciliationJob(app);
   registerEnsWebhookRetryJob(app);
   registerEnsTxWatcherJob(app);
+  registerEnsIdentitySyncJob(app);
   registerOpsRetentionJob(app);
 
   app.setErrorHandler((error, request, reply) => {

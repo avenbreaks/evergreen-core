@@ -23,6 +23,7 @@ type LimitInput = {
 type InternalWorkersDeps = {
   runEnsReconciliationOnce: (_app: unknown, input?: ReconciliationInput) => Promise<unknown>;
   runEnsTxWatcherOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
+  runEnsIdentitySyncOnce: (_app: unknown, input?: { limit?: number; staleMinutes?: number }) => Promise<unknown>;
   runEnsWebhookRetryOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
   runOpsRetentionOnce: (
     _app: unknown,
@@ -39,6 +40,7 @@ const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorker
   return {
     runEnsReconciliationOnce: unexpected("runEnsReconciliationOnce"),
     runEnsTxWatcherOnce: unexpected("runEnsTxWatcherOnce"),
+    runEnsIdentitySyncOnce: unexpected("runEnsIdentitySyncOnce"),
     runEnsWebhookRetryOnce: unexpected("runEnsWebhookRetryOnce"),
     runOpsRetentionOnce: unexpected("runOpsRetentionOnce"),
     getInternalWorkerStatusSummary: unexpected("getInternalWorkerStatusSummary"),
@@ -131,8 +133,9 @@ test("internal workers route triggers reconciliation with request input", async 
   });
 });
 
-test("internal workers route triggers tx watcher, webhook retry, and ops retention", async (t) => {
+test("internal workers route triggers tx watcher, identity sync, webhook retry, and ops retention", async (t) => {
   let txWatcherCalls = 0;
+  let identitySyncCalls = 0;
   let webhookRetryCalls = 0;
   let opsRetentionCalls = 0;
 
@@ -148,6 +151,13 @@ test("internal workers route triggers tx watcher, webhook retry, and ops retenti
       webhookRetryCalls += 1;
       return {
         retryRunId: "retry-run-1",
+        skipped: false,
+      };
+    },
+    runEnsIdentitySyncOnce: async () => {
+      identitySyncCalls += 1;
+      return {
+        syncRunId: "identity-sync-run-1",
         skipped: false,
       };
     },
@@ -186,6 +196,18 @@ test("internal workers route triggers tx watcher, webhook retry, and ops retenti
     },
   });
 
+  const identitySyncResponse = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/identity-sync/run",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {
+      limit: 5,
+      staleMinutes: 60,
+    },
+  });
+
   const retentionResponse = await app.inject({
     method: "POST",
     url: "/api/internal/workers/ops-retention/run",
@@ -200,9 +222,11 @@ test("internal workers route triggers tx watcher, webhook retry, and ops retenti
   });
 
   assert.equal(txWatcherResponse.statusCode, 200);
+  assert.equal(identitySyncResponse.statusCode, 200);
   assert.equal(webhookRetryResponse.statusCode, 200);
   assert.equal(retentionResponse.statusCode, 200);
   assert.equal(txWatcherCalls, 1);
+  assert.equal(identitySyncCalls, 1);
   assert.equal(webhookRetryCalls, 1);
   assert.equal(opsRetentionCalls, 1);
 });
