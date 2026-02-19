@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { createPublicClient, http, labelhash, namehash, type Address, type Hex } from "viem";
 
 import { authDb, oorthNexusNetwork } from "@evergreen-devparty/auth";

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 
 import { backendEnv } from "../config/env";
-import { releaseEnsReconciliationLock, tryAcquireEnsReconciliationLock } from "../services/ens-reconciliation-lock";
+import { runWithEnsReconciliationLock } from "../services/ens-reconciliation-lock";
 import { reconcileStalePurchaseIntents } from "../services/ens-reconciliation";
 
 export const registerEnsReconciliationJob = (app: FastifyInstance): void => {
@@ -16,16 +16,7 @@ export const registerEnsReconciliationJob = (app: FastifyInstance): void => {
 
   const runReconciliation = async () => {
     const reconcileRunId = randomUUID();
-    const lockAcquired = await tryAcquireEnsReconciliationLock();
-    if (!lockAcquired) {
-      app.log.info(
-        { reconcileRunId },
-        "ENS reconciliation run skipped: advisory lock held by another instance"
-      );
-      return;
-    }
-
-    try {
+    const lockResult = await runWithEnsReconciliationLock(async () => {
       app.log.info({ reconcileRunId }, "ENS reconciliation run started");
 
       const result = await reconcileStalePurchaseIntents({
@@ -33,30 +24,29 @@ export const registerEnsReconciliationJob = (app: FastifyInstance): void => {
         staleMinutes: backendEnv.ensReconciliationStaleMinutes,
       });
 
+      return result;
+    });
+
+    if (!lockResult.acquired) {
       app.log.info(
-        {
-          reconcileRunId,
-          scanned: result.scanned,
-          updated: result.updated,
-          expired: result.expired,
-          promotedToRegisterable: result.promotedToRegisterable,
-          staleMinutes: result.staleMinutes,
-        },
-        "ENS reconciliation run completed"
+        { reconcileRunId },
+        "ENS reconciliation run skipped: advisory lock held by another instance"
       );
-    } finally {
-      try {
-        await releaseEnsReconciliationLock();
-      } catch (error) {
-        app.log.error(
-          {
-            err: error,
-            reconcileRunId,
-          },
-          "Failed to release ENS reconciliation advisory lock"
-        );
-      }
+      return;
     }
+
+    const result = lockResult.result;
+    app.log.info(
+      {
+        reconcileRunId,
+        scanned: result.scanned,
+        updated: result.updated,
+        expired: result.expired,
+        promotedToRegisterable: result.promotedToRegisterable,
+        staleMinutes: result.staleMinutes,
+      },
+      "ENS reconciliation run completed"
+    );
   };
 
   let timer: NodeJS.Timeout | null = null;

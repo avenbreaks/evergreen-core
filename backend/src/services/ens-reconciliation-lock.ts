@@ -2,23 +2,74 @@ import { sql } from "drizzle-orm";
 
 import { authDb } from "@evergreen-devparty/auth";
 
-const ENS_RECONCILIATION_LOCK_NAMESPACE = 131;
+const ENS_LOCK_NAMESPACE = 131;
 const ENS_RECONCILIATION_LOCK_RESOURCE = 20260220;
+const ENS_TX_WATCHER_LOCK_RESOURCE = 20260221;
 
 type AdvisoryLockRow = {
   locked: boolean | null;
 };
 
-export const tryAcquireEnsReconciliationLock = async (): Promise<boolean> => {
-  const result = await authDb.execute(sql<AdvisoryLockRow>`
-    select pg_try_advisory_lock(${ENS_RECONCILIATION_LOCK_NAMESPACE}, ${ENS_RECONCILIATION_LOCK_RESOURCE}) as locked
-  `);
-
-  return result.rows[0]?.locked === true;
+type LockKey = {
+  namespace: number;
+  resource: number;
 };
 
-export const releaseEnsReconciliationLock = async (): Promise<void> => {
-  await authDb.execute(sql`
-    select pg_advisory_unlock(${ENS_RECONCILIATION_LOCK_NAMESPACE}, ${ENS_RECONCILIATION_LOCK_RESOURCE})
-  `);
+type LockResult<T> =
+  | {
+      acquired: false;
+    }
+  | {
+      acquired: true;
+      result: T;
+    };
+
+type RunEnsAdvisoryLockInput<T> = {
+  resource: number;
+  task: () => Promise<T>;
 };
+
+const runWithTransactionAdvisoryLock = async <T>(key: LockKey, task: () => Promise<T>): Promise<LockResult<T>> =>
+  authDb.transaction(async (tx) => {
+    const result = await tx.execute(sql<AdvisoryLockRow>`
+      select pg_try_advisory_xact_lock(${key.namespace}, ${key.resource}) as locked
+    `);
+
+    if (result.rows[0]?.locked !== true) {
+      return {
+        acquired: false,
+      };
+    }
+
+    return {
+      acquired: true,
+      result: await task(),
+    };
+  });
+
+export const runWithEnsReconciliationLock = async <T>(task: () => Promise<T>): Promise<LockResult<T>> =>
+  runWithTransactionAdvisoryLock(
+    {
+      namespace: ENS_LOCK_NAMESPACE,
+      resource: ENS_RECONCILIATION_LOCK_RESOURCE,
+    },
+    task
+  );
+
+export const runWithEnsTxWatcherLock = async <T>(task: () => Promise<T>): Promise<LockResult<T>> =>
+  runWithTransactionAdvisoryLock(
+    {
+      namespace: ENS_LOCK_NAMESPACE,
+      resource: ENS_TX_WATCHER_LOCK_RESOURCE,
+    },
+    task
+  );
+
+export const runWithEnsAdvisoryLock = async <T>(input: RunEnsAdvisoryLockInput<T>): Promise<LockResult<T>> =>
+  runWithTransactionAdvisoryLock(
+    {
+      namespace: ENS_LOCK_NAMESPACE,
+      resource: input.resource,
+    },
+    input.task
+  );

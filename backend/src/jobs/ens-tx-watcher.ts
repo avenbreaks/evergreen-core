@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 
 import { backendEnv } from "../config/env";
+import { runWithEnsTxWatcherLock } from "../services/ens-reconciliation-lock";
 import { watchPendingEnsTransactions } from "../services/ens-tx-watcher";
 
 export const registerEnsTxWatcherJob = (app: FastifyInstance): void => {
@@ -15,12 +16,22 @@ export const registerEnsTxWatcherJob = (app: FastifyInstance): void => {
 
   const runWatcher = async () => {
     const watcherRunId = randomUUID();
-    app.log.info({ watcherRunId }, "ENS tx watcher run started");
+    const lockResult = await runWithEnsTxWatcherLock(async () => {
+      app.log.info({ watcherRunId }, "ENS tx watcher run started");
 
-    const result = await watchPendingEnsTransactions({
-      limit: backendEnv.ensTxWatcherLimit,
+      const result = await watchPendingEnsTransactions({
+        limit: backendEnv.ensTxWatcherLimit,
+      });
+
+      return result;
     });
 
+    if (!lockResult.acquired) {
+      app.log.info({ watcherRunId }, "ENS tx watcher run skipped: advisory lock held by another instance");
+      return;
+    }
+
+    const result = lockResult.result;
     app.log.info(
       {
         watcherRunId,
