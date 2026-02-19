@@ -1,40 +1,28 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest, preHandlerHookHandler } from "fastify";
 import { z } from "zod";
 
-import { requireAuthSession } from "../lib/auth-session";
-import { requireAuthSessionMiddleware } from "../middleware/auth-session";
+import { requireAuthSession as requireAuthSessionDefault } from "../lib/auth-session";
+import { requireAuthSessionMiddleware as requireAuthSessionMiddlewareDefault } from "../middleware/auth-session";
 import { createDebounceMiddleware, hashDebouncePayload } from "../middleware/debounce-limit";
-import {
-  createForumReport,
-  createForumShare,
-  createForumComment,
-  createForumPost,
-  deleteReplyDraft,
-  getForumFeed,
-  getForumPostDetail,
-  getForumProfile,
-  getReplyDraft,
-  listForumPosts,
-  listForumNotifications,
-  listTopActiveUsers,
-  listTopDiscussions,
-  listTopTopics,
-  listTrendingTags,
-  lockForumPostAsModerator,
-  markForumNotificationRead,
-  previewForumMarkdown,
-  searchForumContent,
-  setForumPostPinned,
-  softDeleteForumComment,
-  softDeleteForumPost,
-  toggleForumBookmark,
-  toggleForumFollow,
-  toggleForumReaction,
-  updateForumProfile,
-  updateForumComment,
-  updateForumPost,
-  upsertReplyDraft,
-} from "../services/forum-core";
+import * as forumCore from "../services/forum-core";
+
+type AuthSession = Awaited<ReturnType<typeof requireAuthSessionDefault>>;
+
+export type ForumRouteDependencies = typeof forumCore & {
+  requireAuthSession: (request: FastifyRequest) => Promise<AuthSession>;
+  requireAuthSessionMiddleware: preHandlerHookHandler;
+};
+
+export type ForumRoutesOptions = {
+  disableDebounce?: boolean;
+  deps?: Partial<ForumRouteDependencies>;
+};
+
+const defaultForumRouteDeps: ForumRouteDependencies = {
+  ...forumCore,
+  requireAuthSession: requireAuthSessionDefault,
+  requireAuthSessionMiddleware: requireAuthSessionMiddlewareDefault,
+};
 
 const markdownBodySchema = z.object({
   markdown: z.string().min(1).max(20000),
@@ -148,7 +136,46 @@ const profileUpdateBodySchema = z.object({
   displayEnsName: z.string().max(255).optional(),
 });
 
-export const forumRoutes: FastifyPluginAsync = async (app) => {
+export const forumRoutes: FastifyPluginAsync<ForumRoutesOptions> = async (app, options) => {
+  const deps: ForumRouteDependencies = {
+    ...defaultForumRouteDeps,
+    ...(options.deps ?? {}),
+  };
+
+  const {
+    createForumComment,
+    createForumPost,
+    createForumReport,
+    createForumShare,
+    deleteReplyDraft,
+    getForumFeed,
+    getForumPostDetail,
+    getForumProfile,
+    getReplyDraft,
+    listForumNotifications,
+    listForumPosts,
+    listTopActiveUsers,
+    listTopDiscussions,
+    listTopTopics,
+    listTrendingTags,
+    lockForumPostAsModerator,
+    markForumNotificationRead,
+    previewForumMarkdown,
+    requireAuthSession,
+    requireAuthSessionMiddleware,
+    searchForumContent,
+    setForumPostPinned,
+    softDeleteForumComment,
+    softDeleteForumPost,
+    toggleForumBookmark,
+    toggleForumFollow,
+    toggleForumReaction,
+    updateForumComment,
+    updateForumPost,
+    updateForumProfile,
+    upsertReplyDraft,
+  } = deps;
+
   const debounceForumWrite = createDebounceMiddleware({
     namespace: "forum.write",
     key: async (request) => {
@@ -157,10 +184,14 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
     },
   });
 
+  const forumWritePreHandler = options.disableDebounce
+    ? requireAuthSessionMiddleware
+    : [requireAuthSessionMiddleware, debounceForumWrite];
+
   app.post(
     "/api/forum/content/preview",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const body = markdownBodySchema.parse(request.body);
@@ -173,7 +204,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/forum/posts",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -204,7 +235,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.patch(
     "/api/forum/posts/:postId",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -223,7 +254,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.delete(
     "/api/forum/posts/:postId",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -239,7 +270,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/forum/posts/:postId/comments",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -258,7 +289,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.patch(
     "/api/forum/comments/:commentId",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -276,7 +307,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.delete(
     "/api/forum/comments/:commentId",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -310,7 +341,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.put(
     "/api/forum/posts/:postId/drafts/me",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -330,7 +361,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.delete(
     "/api/forum/posts/:postId/drafts/me",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -348,7 +379,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/forum/reactions/toggle",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -366,7 +397,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/forum/shares",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -383,7 +414,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/forum/bookmarks/toggle",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -400,7 +431,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/forum/follows/toggle",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -416,7 +447,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/forum/posts/:postId/pin",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -479,7 +510,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/forum/reports",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -497,7 +528,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/forum/mod/posts/:postId/lock",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -532,7 +563,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.patch(
     "/api/notifications/:notificationId/read",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
@@ -564,7 +595,7 @@ export const forumRoutes: FastifyPluginAsync = async (app) => {
   app.patch(
     "/api/profile/me",
     {
-      preHandler: [requireAuthSessionMiddleware, debounceForumWrite],
+      preHandler: forumWritePreHandler,
     },
     async (request) => {
       const authSession = await requireAuthSession(request);
