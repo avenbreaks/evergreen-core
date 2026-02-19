@@ -41,9 +41,12 @@ const envSchema = z.object({
   BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1048576),
   WEBHOOK_SECRET: z.string().optional(),
   WEBHOOK_IP_ALLOWLIST: z.string().optional(),
+  WEBHOOK_SIGNATURE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   ENS_RECONCILIATION_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
   ENS_RECONCILIATION_LIMIT: z.coerce.number().int().positive().default(100),
   ENS_RECONCILIATION_STALE_MINUTES: z.coerce.number().int().positive().default(15),
+  ENS_TX_WATCHER_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
+  ENS_TX_WATCHER_LIMIT: z.coerce.number().int().positive().default(100),
   TRUST_PROXY: z.string().optional(),
 });
 
@@ -69,9 +72,12 @@ export type BackendEnv = {
   bodyLimitBytes: number;
   webhookSecret: string | undefined;
   webhookIpAllowlist: string[];
+  webhookSignatureTtlSeconds: number;
   ensReconciliationIntervalMs: number;
   ensReconciliationLimit: number;
   ensReconciliationStaleMinutes: number;
+  ensTxWatcherIntervalMs: number;
+  ensTxWatcherLimit: number;
   trustProxy: boolean;
 };
 
@@ -86,8 +92,11 @@ export const backendEnv: BackendEnv = {
   bodyLimitBytes: parsed.data.BODY_LIMIT_BYTES,
   webhookSecret: parsed.data.WEBHOOK_SECRET,
   webhookIpAllowlist: parseCsv(parsed.data.WEBHOOK_IP_ALLOWLIST),
+  webhookSignatureTtlSeconds: parsed.data.WEBHOOK_SIGNATURE_TTL_SECONDS,
   ensReconciliationIntervalMs: parsed.data.ENS_RECONCILIATION_INTERVAL_MS,
   ensReconciliationLimit: parsed.data.ENS_RECONCILIATION_LIMIT,
   ensReconciliationStaleMinutes: parsed.data.ENS_RECONCILIATION_STALE_MINUTES,
+  ensTxWatcherIntervalMs: parsed.data.ENS_TX_WATCHER_INTERVAL_MS,
+  ensTxWatcherLimit: parsed.data.ENS_TX_WATCHER_LIMIT,
   trustProxy: parseBoolean(parsed.data.TRUST_PROXY, false),
 };

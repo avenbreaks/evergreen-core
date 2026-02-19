@@ -6,6 +6,7 @@ import { ZodError } from "zod";
 
 import { backendEnv } from "./config/env";
 import { registerEnsReconciliationJob } from "./jobs/ens-reconciliation";
+import { registerEnsTxWatcherJob } from "./jobs/ens-tx-watcher";
 import { HttpError } from "./lib/http-error";
 import { authBridgeRoutes } from "./routes/auth-bridge";
 import { ensRoutes } from "./routes/ens";
@@ -49,6 +50,7 @@ export const buildApp = () => {
   app.register(webhookRoutes);
 
   registerEnsReconciliationJob(app);
+  registerEnsTxWatcherJob(app);
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, "Request failed");
