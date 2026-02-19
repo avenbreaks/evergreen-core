@@ -28,6 +28,7 @@ export const ensWebhookEventStatusEnum = pgEnum("ens_webhook_event_status", [
   "processing",
   "processed",
   "failed",
+  "dead_letter",
 ]);
 
 export const users = pgTable(
@@ -183,12 +184,15 @@ export const ensWebhookEvents = pgTable(
     lastErrorCode: varchar("last_error_code", { length: 64 }),
     lastErrorMessage: text("last_error_message"),
     processedAt: timestamp("processed_at", { withTimezone: true }),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     intentIdx: index("ens_webhook_events_intent_id_idx").on(table.intentId),
     statusIdx: index("ens_webhook_events_status_idx").on(table.status),
+    retryIdx: index("ens_webhook_events_retry_idx").on(table.status, table.nextRetryAt),
     txHashIdx: index("ens_webhook_events_tx_hash_idx").on(table.txHash),
     dedupeUnique: uniqueIndex("ens_webhook_events_dedupe_key_unique").on(table.dedupeKey),
   })
