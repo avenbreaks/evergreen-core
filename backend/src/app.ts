@@ -13,6 +13,7 @@ import { registerOpsRetentionJob } from "./jobs/ops-retention";
 import { HttpError } from "./lib/http-error";
 import { authBridgeRoutes } from "./routes/auth-bridge";
 import { ensRoutes } from "./routes/ens";
+import { forumRoutes } from "./routes/forum";
 import { healthRoutes } from "./routes/health";
 import { internalEnsOpsRoutes } from "./routes/internal-ens-ops";
 import { internalWorkersRoutes } from "./routes/internal-workers";
@@ -53,6 +54,7 @@ export const buildApp = () => {
   app.register(siweRoutes);
   app.register(meRoutes);
   app.register(ensRoutes);
+  app.register(forumRoutes);
   app.register(metricsRoutes);
   app.register(internalEnsOpsRoutes);
   app.register(internalWorkersRoutes);

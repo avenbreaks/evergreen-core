@@ -22,6 +22,20 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/ens/registrations/:intentId/confirm`
   - `POST /api/ens/records/address/prepare`
   - `POST /api/ens/renew/prepare`
+- Forum protected:
+  - `POST /api/forum/content/preview`
+  - `POST /api/forum/posts`
+  - `PATCH /api/forum/posts/:postId`
+  - `DELETE /api/forum/posts/:postId`
+  - `POST /api/forum/posts/:postId/comments`
+  - `PATCH /api/forum/comments/:commentId`
+  - `DELETE /api/forum/comments/:commentId`
+  - `GET /api/forum/posts/:postId/drafts/me`
+  - `PUT /api/forum/posts/:postId/drafts/me`
+  - `DELETE /api/forum/posts/:postId/drafts/me`
+- Forum public:
+  - `GET /api/forum/posts`
+  - `GET /api/forum/posts/:postId`
 - ENS internal maintenance:
   - `POST /api/internal/ens/intents/:intentId/retry` (auth via `x-internal-secret`)
   - `POST /api/internal/ens/intents/:intentId/expire` (auth via `x-internal-secret`)
