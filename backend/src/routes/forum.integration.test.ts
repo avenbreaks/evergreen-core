@@ -329,3 +329,109 @@ test("forum route resolves auth user for following-only feed", async (t) => {
     userId: TEST_USER_ID,
   });
 });
+
+test("forum protected write route rejects missing auth", async (t) => {
+  const app = await buildForumTestApp({
+    requireAuthSessionMiddleware: async () => {
+      throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    payload: {
+      title: "Unauthorized",
+      markdown: "Should fail",
+    },
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json().code, "UNAUTHORIZED");
+});
+
+test("forum comment endpoint happy-path returns created comment", async (t) => {
+  const app = await buildForumTestApp({
+    createForumComment: async () => ({
+      comment: {
+        id: TEST_COMMENT_ID,
+        postId: TEST_POST_ID,
+        authorId: TEST_USER_ID,
+        parentId: null,
+        depth: 0,
+        status: "published",
+        reactionCount: 0,
+        replyCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      },
+    }),
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/forum/posts/${TEST_POST_ID}/comments`,
+    payload: {
+      markdown: "first reply",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().comment.id, TEST_COMMENT_ID);
+});
+
+test("forum comment endpoint returns depth-limit error", async (t) => {
+  const app = await buildForumTestApp({
+    createForumComment: async () => {
+      throw new HttpError(400, "MAX_REPLY_DEPTH_EXCEEDED", "Maximum reply depth is 3");
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/forum/posts/${TEST_POST_ID}/comments`,
+    payload: {
+      markdown: "nested reply",
+      parentId: TEST_COMMENT_ID,
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().code, "MAX_REPLY_DEPTH_EXCEEDED");
+});
+
+test("forum pin endpoint returns forbidden when permission denied", async (t) => {
+  const app = await buildForumTestApp({
+    setForumPostPinned: async () => {
+      throw new HttpError(403, "FORBIDDEN", "Only post owner or moderator/admin can pin this post");
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/forum/posts/${TEST_POST_ID}/pin`,
+    payload: {
+      pinned: true,
+    },
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.equal(response.json().code, "FORBIDDEN");
+});
