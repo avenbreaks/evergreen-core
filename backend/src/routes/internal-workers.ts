@@ -10,6 +10,10 @@ type InternalWorkersRouteDependencies = {
   runEnsIdentitySyncOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number }) => Promise<unknown>;
   runEnsWebhookRetryOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
   runForumSearchSyncOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
+  runForumSearchBackfillOnce: (
+    app: unknown,
+    input?: { batchSize?: number; includePosts?: boolean; includeComments?: boolean }
+  ) => Promise<unknown>;
   runOpsRetentionOnce: (app: unknown, input?: {
     batchLimit?: number;
     processedRetentionDays?: number;
@@ -43,6 +47,12 @@ const runOpsRetentionBodySchema = z.object({
   deadLetterRetentionDays: z.coerce.number().int().positive().max(365).optional(),
 });
 
+const runForumSearchBackfillBodySchema = z.object({
+  batchSize: z.coerce.number().int().positive().max(1000).optional(),
+  includePosts: z.boolean().optional(),
+  includeComments: z.boolean().optional(),
+});
+
 const hasCompleteDependencies = (
   deps: Partial<InternalWorkersRouteDependencies> | undefined
 ): deps is InternalWorkersRouteDependencies => {
@@ -56,18 +66,29 @@ const hasCompleteDependencies = (
     typeof deps.runEnsIdentitySyncOnce === "function" &&
     typeof deps.runEnsWebhookRetryOnce === "function" &&
     typeof deps.runForumSearchSyncOnce === "function" &&
+    typeof deps.runForumSearchBackfillOnce === "function" &&
     typeof deps.runOpsRetentionOnce === "function" &&
     typeof deps.getInternalWorkerStatusSummary === "function"
   );
 };
 
 const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependencies> => {
-  const [reconciliationJob, txWatcherJob, identitySyncJob, webhookRetryJob, forumSearchSyncJob, opsRetentionJob, workerStatusService] = await Promise.all([
+  const [
+    reconciliationJob,
+    txWatcherJob,
+    identitySyncJob,
+    webhookRetryJob,
+    forumSearchSyncJob,
+    forumSearchBackfillJob,
+    opsRetentionJob,
+    workerStatusService,
+  ] = await Promise.all([
     import("../jobs/ens-reconciliation"),
     import("../jobs/ens-tx-watcher"),
     import("../jobs/ens-identity-sync"),
     import("../jobs/ens-webhook-retry"),
     import("../jobs/forum-search-sync"),
+    import("../jobs/forum-search-backfill"),
     import("../jobs/ops-retention"),
     import("../services/internal-worker-status"),
   ]);
@@ -78,6 +99,8 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     runEnsIdentitySyncOnce: identitySyncJob.runEnsIdentitySyncOnce as InternalWorkersRouteDependencies["runEnsIdentitySyncOnce"],
     runEnsWebhookRetryOnce: webhookRetryJob.runEnsWebhookRetryOnce as InternalWorkersRouteDependencies["runEnsWebhookRetryOnce"],
     runForumSearchSyncOnce: forumSearchSyncJob.runForumSearchSyncOnce as InternalWorkersRouteDependencies["runForumSearchSyncOnce"],
+    runForumSearchBackfillOnce:
+      forumSearchBackfillJob.runForumSearchBackfillOnce as InternalWorkersRouteDependencies["runForumSearchBackfillOnce"],
     runOpsRetentionOnce: opsRetentionJob.runOpsRetentionOnce as InternalWorkersRouteDependencies["runOpsRetentionOnce"],
     getInternalWorkerStatusSummary: workerStatusService.getInternalWorkerStatusSummary,
   };
@@ -205,6 +228,27 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
       return {
         acknowledged: true,
         worker: "forum-search-sync",
+        run,
+      };
+    }
+  );
+
+  app.post(
+    "/api/internal/workers/forum-search-backfill/run",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
+    },
+    async (request) => {
+      const body = runForumSearchBackfillBodySchema.parse(request.body ?? {});
+      const run = await deps.runForumSearchBackfillOnce(app, {
+        batchSize: body.batchSize,
+        includePosts: body.includePosts,
+        includeComments: body.includeComments,
+      });
+
+      return {
+        acknowledged: true,
+        worker: "forum-search-backfill",
         run,
       };
     }

@@ -7,6 +7,7 @@ const WORKER_NAMES = [
   "ops-retention",
   "identity-sync",
   "forum-search-sync",
+  "forum-search-backfill",
 ] as const;
 const WORKER_OUTCOMES = ["completed", "skipped", "failed"] as const;
 
@@ -41,6 +42,7 @@ const initWorkerTotals = (): WorkerTotals => ({
   "ops-retention": { completed: 0, skipped: 0, failed: 0 },
   "identity-sync": { completed: 0, skipped: 0, failed: 0 },
   "forum-search-sync": { completed: 0, skipped: 0, failed: 0 },
+  "forum-search-backfill": { completed: 0, skipped: 0, failed: 0 },
 });
 
 const initWorkerSkipStreak = (): WorkerSkipStreak => ({
@@ -50,6 +52,7 @@ const initWorkerSkipStreak = (): WorkerSkipStreak => ({
   "ops-retention": 0,
   "identity-sync": 0,
   "forum-search-sync": 0,
+  "forum-search-backfill": 0,
 });
 
 const state: OpsMetricsSnapshot = {
@@ -78,6 +81,7 @@ const cloneWorkerTotals = (input: WorkerTotals): WorkerTotals => ({
   "ops-retention": { ...input["ops-retention"] },
   "identity-sync": { ...input["identity-sync"] },
   "forum-search-sync": { ...input["forum-search-sync"] },
+  "forum-search-backfill": { ...input["forum-search-backfill"] },
 });
 
 const cloneWorkerSkipStreak = (input: WorkerSkipStreak): WorkerSkipStreak => ({
@@ -87,6 +91,7 @@ const cloneWorkerSkipStreak = (input: WorkerSkipStreak): WorkerSkipStreak => ({
   "ops-retention": input["ops-retention"],
   "identity-sync": input["identity-sync"],
   "forum-search-sync": input["forum-search-sync"],
+  "forum-search-backfill": input["forum-search-backfill"],
 });
 
 export const setOpsMetricAlertHandler = (handler: OpsMetricAlertHandler | null): void => {

@@ -26,6 +26,10 @@ type InternalWorkersDeps = {
   runEnsIdentitySyncOnce: (_app: unknown, input?: { limit?: number; staleMinutes?: number }) => Promise<unknown>;
   runEnsWebhookRetryOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
   runForumSearchSyncOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
+  runForumSearchBackfillOnce: (
+    _app: unknown,
+    input?: { batchSize?: number; includePosts?: boolean; includeComments?: boolean }
+  ) => Promise<unknown>;
   runOpsRetentionOnce: (
     _app: unknown,
     input?: { batchLimit?: number; processedRetentionDays?: number; deadLetterRetentionDays?: number }
@@ -44,6 +48,7 @@ const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorker
     runEnsIdentitySyncOnce: unexpected("runEnsIdentitySyncOnce"),
     runEnsWebhookRetryOnce: unexpected("runEnsWebhookRetryOnce"),
     runForumSearchSyncOnce: unexpected("runForumSearchSyncOnce"),
+    runForumSearchBackfillOnce: unexpected("runForumSearchBackfillOnce"),
     runOpsRetentionOnce: unexpected("runOpsRetentionOnce"),
     getInternalWorkerStatusSummary: unexpected("getInternalWorkerStatusSummary"),
     ...overrides,
@@ -135,11 +140,12 @@ test("internal workers route triggers reconciliation with request input", async 
   });
 });
 
-test("internal workers route triggers tx watcher, identity sync, webhook retry, forum search sync, and ops retention", async (t) => {
+test("internal workers route triggers tx watcher, identity sync, webhook retry, forum search sync, backfill, and ops retention", async (t) => {
   let txWatcherCalls = 0;
   let identitySyncCalls = 0;
   let webhookRetryCalls = 0;
   let forumSearchSyncCalls = 0;
+  let forumSearchBackfillCalls = 0;
   let opsRetentionCalls = 0;
 
   const app = await buildInternalWorkersTestApp({
@@ -161,6 +167,13 @@ test("internal workers route triggers tx watcher, identity sync, webhook retry, 
       forumSearchSyncCalls += 1;
       return {
         syncRunId: "forum-search-sync-run-1",
+        skipped: false,
+      };
+    },
+    runForumSearchBackfillOnce: async () => {
+      forumSearchBackfillCalls += 1;
+      return {
+        backfillRunId: "forum-search-backfill-run-1",
         skipped: false,
       };
     },
@@ -242,15 +255,30 @@ test("internal workers route triggers tx watcher, identity sync, webhook retry, 
     },
   });
 
+  const forumSearchBackfillResponse = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search-backfill/run",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {
+      batchSize: 10,
+      includePosts: true,
+      includeComments: true,
+    },
+  });
+
   assert.equal(txWatcherResponse.statusCode, 200);
   assert.equal(identitySyncResponse.statusCode, 200);
   assert.equal(webhookRetryResponse.statusCode, 200);
   assert.equal(forumSearchSyncResponse.statusCode, 200);
+  assert.equal(forumSearchBackfillResponse.statusCode, 200);
   assert.equal(retentionResponse.statusCode, 200);
   assert.equal(txWatcherCalls, 1);
   assert.equal(identitySyncCalls, 1);
   assert.equal(webhookRetryCalls, 1);
   assert.equal(forumSearchSyncCalls, 1);
+  assert.equal(forumSearchBackfillCalls, 1);
   assert.equal(opsRetentionCalls, 1);
 });
 
