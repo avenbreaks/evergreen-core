@@ -41,6 +41,9 @@ const envSchema = z.object({
   BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1048576),
   WEBHOOK_SECRET: z.string().optional(),
   WEBHOOK_IP_ALLOWLIST: z.string().optional(),
+  ENS_RECONCILIATION_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
+  ENS_RECONCILIATION_LIMIT: z.coerce.number().int().positive().default(100),
+  ENS_RECONCILIATION_STALE_MINUTES: z.coerce.number().int().positive().default(15),
   TRUST_PROXY: z.string().optional(),
 });
 
@@ -66,5 +69,8 @@ export const backendEnv = {
   bodyLimitBytes: parsed.data.BODY_LIMIT_BYTES,
   webhookSecret: parsed.data.WEBHOOK_SECRET,
   webhookIpAllowlist: parseCsv(parsed.data.WEBHOOK_IP_ALLOWLIST),
+  ensReconciliationIntervalMs: parsed.data.ENS_RECONCILIATION_INTERVAL_MS,
+  ensReconciliationLimit: parsed.data.ENS_RECONCILIATION_LIMIT,
+  ensReconciliationStaleMinutes: parsed.data.ENS_RECONCILIATION_STALE_MINUTES,
   trustProxy: parseBoolean(parsed.data.TRUST_PROXY, false),
 } as const;

@@ -22,6 +22,8 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/ens/registrations/:intentId/confirm`
   - `POST /api/ens/records/address/prepare`
   - `POST /api/ens/renew/prepare`
+- ENS internal maintenance:
+  - `POST /api/internal/ens/reconcile` (auth via `x-webhook-secret`)
 
 ## Setup cepat
 1. Copy env:
@@ -39,3 +41,10 @@ Backend API untuk Evergreen Devparty dengan fokus:
 - Backend menyiapkan payload tx (`to`, `functionName`, `args`, `value`).
 - Frontend wallet mengeksekusi tx on-chain.
 - Backend menerima tx hash untuk verifikasi receipt dan sinkronisasi state DB.
+
+## ENS reconciliation
+- Endpoint `POST /api/internal/ens/reconcile` untuk rekonsiliasi intent yang stuck (`committed`/`registerable`).
+- Optional background job bisa diaktifkan via env:
+  - `ENS_RECONCILIATION_INTERVAL_MS` (`0` untuk disable)
+  - `ENS_RECONCILIATION_LIMIT`
+  - `ENS_RECONCILIATION_STALE_MINUTES`
