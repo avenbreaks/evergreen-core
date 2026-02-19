@@ -193,6 +193,8 @@ export const ensWebhookEvents = pgTable(
     intentIdx: index("ens_webhook_events_intent_id_idx").on(table.intentId),
     statusIdx: index("ens_webhook_events_status_idx").on(table.status),
     retryIdx: index("ens_webhook_events_retry_idx").on(table.status, table.nextRetryAt),
+    processedIdx: index("ens_webhook_events_processed_at_idx").on(table.status, table.processedAt),
+    deadLetterIdx: index("ens_webhook_events_dead_lettered_at_idx").on(table.status, table.deadLetteredAt),
     txHashIdx: index("ens_webhook_events_tx_hash_idx").on(table.txHash),
     dedupeUnique: uniqueIndex("ens_webhook_events_dedupe_key_unique").on(table.dedupeKey),
   })
