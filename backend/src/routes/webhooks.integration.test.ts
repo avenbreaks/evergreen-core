@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 
 import Fastify from "fastify";
@@ -12,6 +13,44 @@ const TX_HASH_TWO = `0x${"2".repeat(64)}`;
 
 process.env.WEBHOOK_SECRET = WEBHOOK_SECRET;
 process.env.WEBHOOK_IP_ALLOWLIST = "";
+process.env.WEBHOOK_SIGNATURE_TTL_SECONDS = "300";
+
+const buildSignedWebhookHeaders = (payload: unknown, timestamp = Math.floor(Date.now() / 1000)): Record<string, string> => {
+  const signature = createHmac("sha256", WEBHOOK_SECRET)
+    .update(`${timestamp}.${JSON.stringify(payload)}`)
+    .digest("hex");
+
+  return {
+    "x-webhook-timestamp": String(timestamp),
+    "x-webhook-signature": `sha256=${signature}`,
+  };
+};
+
+test("webhook rejects expired timestamp signature", async (t) => {
+  const app = await buildWebhookTestApp();
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const payload = {
+    event: "ens.commit.confirmed",
+    data: {
+      intentId: INTENT_ID,
+      txHash: TX_HASH_ONE,
+    },
+  };
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/webhooks/ens/tx",
+    headers: buildSignedWebhookHeaders(payload, Math.floor(Date.now() / 1000) - 3600),
+    payload,
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json().code, "WEBHOOK_SIGNATURE_EXPIRED");
+});
 
 const buildDeps = (overrides: Record<string, unknown>) => {
   const unexpected = (name: string) => {
@@ -29,7 +68,7 @@ const buildDeps = (overrides: Record<string, unknown>) => {
   };
 };
 
-const buildWebhookTestApp = async (depsOverrides: Record<string, unknown>) => {
+const buildWebhookTestApp = async (depsOverrides: Record<string, unknown> = {}) => {
   const { webhookRoutes } = await import("./webhooks");
   const app = Fastify({ logger: false });
 
@@ -113,9 +152,7 @@ test("webhook duplicate processed returns cached outcome", async (t) => {
   const first = await app.inject({
     method: "POST",
     url: "/api/webhooks/ens/tx",
-    headers: {
-      "x-webhook-secret": WEBHOOK_SECRET,
-    },
+    headers: buildSignedWebhookHeaders(payload),
     payload,
   });
 
@@ -125,9 +162,7 @@ test("webhook duplicate processed returns cached outcome", async (t) => {
   const second = await app.inject({
     method: "POST",
     url: "/api/webhooks/ens/tx",
-    headers: {
-      "x-webhook-secret": WEBHOOK_SECRET,
-    },
+    headers: buildSignedWebhookHeaders(payload),
     payload,
   });
 
@@ -190,9 +225,7 @@ test("webhook retry after previous failure is processed successfully", async (t)
   const failedAttempt = await app.inject({
     method: "POST",
     url: "/api/webhooks/ens/tx",
-    headers: {
-      "x-webhook-secret": WEBHOOK_SECRET,
-    },
+    headers: buildSignedWebhookHeaders(payload),
     payload,
   });
 
@@ -202,9 +235,7 @@ test("webhook retry after previous failure is processed successfully", async (t)
   const retryAttempt = await app.inject({
     method: "POST",
     url: "/api/webhooks/ens/tx",
-    headers: {
-      "x-webhook-secret": WEBHOOK_SECRET,
-    },
+    headers: buildSignedWebhookHeaders(payload),
     payload,
   });
 
@@ -243,9 +274,14 @@ test("webhook register confirmed persists processed transition", async (t) => {
   const response = await app.inject({
     method: "POST",
     url: "/api/webhooks/ens/tx",
-    headers: {
-      "x-webhook-secret": WEBHOOK_SECRET,
-    },
+    headers: buildSignedWebhookHeaders({
+      event: "ens.register.confirmed",
+      data: {
+        intentId: INTENT_ID,
+        txHash: TX_HASH_TWO,
+        setPrimary: true,
+      },
+    }),
     payload: {
       event: "ens.register.confirmed",
       data: {

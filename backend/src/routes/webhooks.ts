@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { HttpError } from "../lib/http-error";
 import { createDebounceMiddleware, hashDebouncePayload } from "../middleware/debounce-limit";
-import { verifyWebhookSecretMiddleware } from "../middleware/webhook-auth";
+import { verifyWebhookSignatureMiddleware } from "../middleware/webhook-auth";
 
 type WebhookRouteDependencies = {
   reserveWebhookEvent: (input: {
@@ -179,8 +179,8 @@ export const webhookRoutes: FastifyPluginAsync<WebhookRoutesOptions> = async (ap
     "/api/webhooks/ens/tx",
     {
       preHandler: options.disableDebounce
-        ? [verifyWebhookSecretMiddleware]
-        : [verifyWebhookSecretMiddleware, debounceWebhookEvent],
+        ? [verifyWebhookSignatureMiddleware]
+        : [verifyWebhookSignatureMiddleware, debounceWebhookEvent],
     },
     async (request) => {
       const payload = webhookPayloadSchema.parse(request.body);

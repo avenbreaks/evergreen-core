@@ -23,6 +23,8 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/ens/records/address/prepare`
   - `POST /api/ens/renew/prepare`
 - ENS internal maintenance:
+  - `POST /api/internal/ens/intents/:intentId/retry` (auth via `x-webhook-secret`)
+  - `POST /api/internal/ens/intents/:intentId/expire` (auth via `x-webhook-secret`)
   - `POST /api/internal/ens/reconcile` (auth via `x-webhook-secret`)
 
 ## Setup cepat
@@ -44,7 +46,12 @@ Backend API untuk Evergreen Devparty dengan fokus:
 
 ## ENS webhook internal contract
 - Endpoint: `POST /api/webhooks/ens/tx`
-- Auth wajib: header `x-webhook-secret` (opsional allowlist IP via `WEBHOOK_IP_ALLOWLIST`).
+- Auth wajib:
+  - `x-webhook-timestamp` (unix seconds)
+  - `x-webhook-signature` dengan format `sha256=<hex>`
+  - signature dihitung dari `${timestamp}.${JSON.stringify(payload)}` memakai secret `WEBHOOK_SECRET`
+  - opsional allowlist IP via `WEBHOOK_IP_ALLOWLIST`
+- Anti replay window dikontrol oleh `WEBHOOK_SIGNATURE_TTL_SECONDS` (default `300`).
 - Event yang diterima:
   - `ens.commit.confirmed`
   - `ens.register.confirmed`
@@ -72,6 +79,7 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - duplikat masih diproses: `deduplicated: true` + `processing: true`
 - Error code umum:
   - `WEBHOOK_UNAUTHORIZED`
+  - `WEBHOOK_SIGNATURE_EXPIRED`
   - `WEBHOOK_IP_NOT_ALLOWED`
   - `VALIDATION_ERROR`
   - `COMMIT_TX_FAILED`
@@ -105,3 +113,10 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `ENS_RECONCILIATION_LIMIT`
   - `ENS_RECONCILIATION_STALE_MINUTES`
 - Worker memakai Postgres advisory lock agar tidak ada overlap run antar instance backend.
+
+## ENS tx watcher fallback
+- Optional background watcher bisa diaktifkan via env:
+  - `ENS_TX_WATCHER_INTERVAL_MS` (`0` untuk disable)
+  - `ENS_TX_WATCHER_LIMIT`
+- Watcher memeriksa intent `prepared/committed/registerable` untuk fallback saat webhook telat/hilang.
+- Watcher juga memakai Postgres advisory lock agar tidak ada overlap run antar instance backend.
