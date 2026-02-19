@@ -1,0 +1,17 @@
+{
+  "name": "evergreen-devparty",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.5.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "infra:up": "docker compose --env-file infra/.env -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose --env-file infra/.env -f infra/docker-compose.yml down",
+    "db:generate": "pnpm --filter @evergreen-devparty/db db:generate",
+    "db:migrate": "pnpm --filter @evergreen-devparty/db db:migrate",
+    "db:studio": "pnpm --filter @evergreen-devparty/db db:studio"
+  }
+}

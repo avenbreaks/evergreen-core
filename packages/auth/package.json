@@ -1,0 +1,17 @@
+{
+  "name": "@evergreen-devparty/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@evergreen-devparty/db": "workspace:*",
+    "better-auth": "^1.4.0",
+    "drizzle-orm": "^0.44.5",
+    "siwe": "^3.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

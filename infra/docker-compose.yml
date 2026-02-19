@@ -1,0 +1,77 @@
+name: devparty-infra
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: devparty-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-devparty}
+      POSTGRES_USER: ${POSTGRES_USER:-devparty}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devparty}
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-devparty} -d ${POSTGRES_DB:-devparty}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: devparty-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.13
+    container_name: devparty-meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-devparty_master_key}
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili_data:/meili_data
+
+  nocodb:
+    image: nocodb/nocodb:latest
+    container_name: devparty-nocodb
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NC_DB: pg://postgres:5432?u=${POSTGRES_USER:-devparty}&p=${POSTGRES_PASSWORD:-devparty}&d=${POSTGRES_DB:-devparty}
+      NC_AUTH_JWT_SECRET: ${NOCODB_JWT_SECRET:-devparty_nocodb_jwt_secret}
+      NC_PUBLIC_URL: ${NOCODB_PUBLIC_URL:-http://localhost:8080}
+    ports:
+      - "8080:8080"
+    volumes:
+      - nocodb_data:/usr/app/data
+
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: devparty-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  postgres_data:
+  redis_data:
+  meili_data:
+  nocodb_data:

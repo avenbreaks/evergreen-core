@@ -1,0 +1,68 @@
+import { createDb, schema } from "@evergreen-devparty/db";
+import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+
+import { authEnv } from "./env";
+
+export const authDb = createDb(authEnv.databaseUrl);
+
+const socialProviders =
+  authEnv.githubClientId && authEnv.githubClientSecret
+    ? {
+        github: {
+          clientId: authEnv.githubClientId,
+          clientSecret: authEnv.githubClientSecret,
+        },
+      }
+    : undefined;
+
+const trustedProviders = ["email-password", "siwe", ...(socialProviders ? ["github"] : [])];
+
+export const auth = betterAuth({
+  appName: "Evergreen Devparty",
+  baseURL: authEnv.betterAuthUrl,
+  secret: authEnv.betterAuthSecret,
+  trustedOrigins: authEnv.trustedOrigins,
+  database: drizzleAdapter(authDb, {
+    provider: "pg",
+    schema: {
+      ...schema,
+      user: schema.users,
+      account: schema.authAccounts,
+      session: schema.authSessions,
+      verification: schema.authVerifications,
+    },
+  }),
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders,
+      allowDifferentEmails: true,
+    },
+  },
+  session: {
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
+  },
+  emailAndPassword: {
+    enabled: true,
+    requireEmailVerification: false,
+    minPasswordLength: 8,
+  },
+  ...(socialProviders ? { socialProviders } : {}),
+  rateLimit: {
+    enabled: true,
+    storage: "memory",
+  },
+  advanced: {
+    useSecureCookies: authEnv.nodeEnv === "production",
+    disableCSRFCheck: false,
+    disableOriginCheck: false,
+    database: {
+      generateId: () => crypto.randomUUID(),
+    },
+  },
+  experimental: {
+    joins: true,
+  },
+});
