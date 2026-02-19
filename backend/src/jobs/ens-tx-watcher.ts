@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 
 import { backendEnv } from "../config/env";
 import { runWithEnsTxWatcherLock } from "../services/ens-reconciliation-lock";
+import { recordWorkerRunMetric } from "../services/ops-metrics";
 import { watchPendingEnsTransactions } from "../services/ens-tx-watcher";
 
 type RunEnsTxWatcherOnceInput = {
@@ -12,46 +13,65 @@ type RunEnsTxWatcherOnceInput = {
 
 export const runEnsTxWatcherOnce = async (app: FastifyInstance, input: RunEnsTxWatcherOnceInput = {}) => {
   const watcherRunId = randomUUID();
-  const lockResult = await runWithEnsTxWatcherLock(async () => {
-    app.log.info({ watcherRunId }, "ENS tx watcher run started");
+  try {
+    const lockResult = await runWithEnsTxWatcherLock(async () => {
+      app.log.info({ watcherRunId }, "ENS tx watcher run started");
 
-    const result = await watchPendingEnsTransactions({
-      limit: input.limit ?? backendEnv.ensTxWatcherLimit,
+      const result = await watchPendingEnsTransactions({
+        limit: input.limit ?? backendEnv.ensTxWatcherLimit,
+      });
+
+      return result;
     });
 
-    return result;
-  });
+    if (!lockResult.acquired) {
+      app.log.info({ watcherRunId }, "ENS tx watcher run skipped: advisory lock held by another instance");
+      recordWorkerRunMetric({
+        worker: "tx-watcher",
+        outcome: "skipped",
+        runId: watcherRunId,
+      });
+      return {
+        watcherRunId,
+        skipped: true,
+      } as const;
+    }
 
-  if (!lockResult.acquired) {
-    app.log.info({ watcherRunId }, "ENS tx watcher run skipped: advisory lock held by another instance");
+    const result = lockResult.result;
+    app.log.info(
+      {
+        watcherRunId,
+        scanned: result.scanned,
+        checkedCommitTx: result.checkedCommitTx,
+        checkedRegisterTx: result.checkedRegisterTx,
+        syncedCommitments: result.syncedCommitments,
+        syncedRegistrations: result.syncedRegistrations,
+        expired: result.expired,
+        unchanged: result.unchanged,
+        failed: result.failed,
+        errors: result.errors,
+      },
+      "ENS tx watcher run completed"
+    );
+    recordWorkerRunMetric({
+      worker: "tx-watcher",
+      outcome: "completed",
+      runId: watcherRunId,
+    });
+
     return {
       watcherRunId,
-      skipped: true,
+      skipped: false,
+      result,
     } as const;
+  } catch (error) {
+    recordWorkerRunMetric({
+      worker: "tx-watcher",
+      outcome: "failed",
+      runId: watcherRunId,
+    });
+    throw error;
   }
-
-  const result = lockResult.result;
-  app.log.info(
-    {
-      watcherRunId,
-      scanned: result.scanned,
-      checkedCommitTx: result.checkedCommitTx,
-      checkedRegisterTx: result.checkedRegisterTx,
-      syncedCommitments: result.syncedCommitments,
-      syncedRegistrations: result.syncedRegistrations,
-      expired: result.expired,
-      unchanged: result.unchanged,
-      failed: result.failed,
-      errors: result.errors,
-    },
-    "ENS tx watcher run completed"
-  );
-
-  return {
-    watcherRunId,
-    skipped: false,
-    result,
-  } as const;
 };
 
 export const registerEnsTxWatcherJob = (app: FastifyInstance): void => {

@@ -16,10 +16,12 @@ import { healthRoutes } from "./routes/health";
 import { internalEnsOpsRoutes } from "./routes/internal-ens-ops";
 import { internalWorkersRoutes } from "./routes/internal-workers";
 import { meRoutes } from "./routes/me";
+import { metricsRoutes } from "./routes/metrics";
 import { networkRoutes } from "./routes/network";
 import { reconciliationRoutes } from "./routes/reconciliation";
 import { siweRoutes } from "./routes/siwe";
 import { webhookRoutes } from "./routes/webhooks";
+import { setOpsMetricAlertHandler } from "./services/ops-metrics";
 
 export const buildApp = () => {
   const app = Fastify({
@@ -50,10 +52,29 @@ export const buildApp = () => {
   app.register(siweRoutes);
   app.register(meRoutes);
   app.register(ensRoutes);
+  app.register(metricsRoutes);
   app.register(internalEnsOpsRoutes);
   app.register(internalWorkersRoutes);
   app.register(reconciliationRoutes);
   app.register(webhookRoutes);
+
+  setOpsMetricAlertHandler((alert) => {
+    const details = {
+      code: alert.code,
+      ...(alert.context ?? {}),
+    };
+
+    if (alert.level === "error") {
+      app.log.error(details, alert.message);
+      return;
+    }
+
+    app.log.warn(details, alert.message);
+  });
+
+  app.addHook("onClose", async () => {
+    setOpsMetricAlertHandler(null);
+  });
 
   registerEnsReconciliationJob(app);
   registerEnsWebhookRetryJob(app);

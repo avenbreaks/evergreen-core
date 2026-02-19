@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 
 import { backendEnv } from "../config/env";
 import { runWithEnsReconciliationLock } from "../services/ens-reconciliation-lock";
+import { recordWorkerRunMetric } from "../services/ops-metrics";
 import { reconcileStalePurchaseIntents } from "../services/ens-reconciliation";
 
 type RunEnsReconciliationOnceInput = {
@@ -17,48 +18,67 @@ export const runEnsReconciliationOnce = async (
   input: RunEnsReconciliationOnceInput = {}
 ) => {
   const reconcileRunId = randomUUID();
-  const lockResult = await runWithEnsReconciliationLock(async () => {
-    app.log.info({ reconcileRunId }, "ENS reconciliation run started");
+  try {
+    const lockResult = await runWithEnsReconciliationLock(async () => {
+      app.log.info({ reconcileRunId }, "ENS reconciliation run started");
 
-    const result = await reconcileStalePurchaseIntents({
-      limit: input.limit ?? backendEnv.ensReconciliationLimit,
-      staleMinutes: input.staleMinutes ?? backendEnv.ensReconciliationStaleMinutes,
-      dryRun: input.dryRun,
+      const result = await reconcileStalePurchaseIntents({
+        limit: input.limit ?? backendEnv.ensReconciliationLimit,
+        staleMinutes: input.staleMinutes ?? backendEnv.ensReconciliationStaleMinutes,
+        dryRun: input.dryRun,
+      });
+
+      return result;
     });
 
-    return result;
-  });
+    if (!lockResult.acquired) {
+      app.log.info(
+        { reconcileRunId },
+        "ENS reconciliation run skipped: advisory lock held by another instance"
+      );
+      recordWorkerRunMetric({
+        worker: "reconciliation",
+        outcome: "skipped",
+        runId: reconcileRunId,
+      });
+      return {
+        reconcileRunId,
+        skipped: true,
+      } as const;
+    }
 
-  if (!lockResult.acquired) {
+    const result = lockResult.result;
     app.log.info(
-      { reconcileRunId },
-      "ENS reconciliation run skipped: advisory lock held by another instance"
+      {
+        reconcileRunId,
+        scanned: result.scanned,
+        updated: result.updated,
+        expired: result.expired,
+        promotedToRegisterable: result.promotedToRegisterable,
+        staleMinutes: result.staleMinutes,
+        dryRun: result.dryRun,
+      },
+      "ENS reconciliation run completed"
     );
+    recordWorkerRunMetric({
+      worker: "reconciliation",
+      outcome: "completed",
+      runId: reconcileRunId,
+    });
+
     return {
       reconcileRunId,
-      skipped: true,
+      skipped: false,
+      result,
     } as const;
+  } catch (error) {
+    recordWorkerRunMetric({
+      worker: "reconciliation",
+      outcome: "failed",
+      runId: reconcileRunId,
+    });
+    throw error;
   }
-
-  const result = lockResult.result;
-  app.log.info(
-    {
-      reconcileRunId,
-      scanned: result.scanned,
-      updated: result.updated,
-      expired: result.expired,
-      promotedToRegisterable: result.promotedToRegisterable,
-      staleMinutes: result.staleMinutes,
-      dryRun: result.dryRun,
-    },
-    "ENS reconciliation run completed"
-  );
-
-  return {
-    reconcileRunId,
-    skipped: false,
-    result,
-  } as const;
 };
 
 export const registerEnsReconciliationJob = (app: FastifyInstance): void => {

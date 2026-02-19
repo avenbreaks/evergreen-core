@@ -31,6 +31,8 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/internal/workers/webhook-retry/run` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/ops-retention/run` (auth via `x-internal-secret`)
   - `GET /api/internal/workers/status` (auth via `x-internal-secret`)
+- Metrics:
+  - `GET /metrics` (Prometheus text format, auth via `x-internal-secret`)
 
 ## Setup cepat
 1. Copy env:
@@ -134,3 +136,14 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `OPS_WEBHOOK_PROCESSED_RETENTION_DAYS`
   - `OPS_WEBHOOK_DEAD_LETTER_RETENTION_DAYS`
 - Cleanup menghapus event webhook operasional lama (`processed` dan `dead_letter`) per batch.
+
+## Runtime metrics and alerts
+- Endpoint `/metrics` expose counter/gauge operasional backend dalam format Prometheus.
+- Hook alert bawaan akan log `warn/error` untuk:
+  - dead-letter webhook yang melewati threshold,
+  - retry depth webhook yang terlalu tinggi,
+  - skip streak worker yang beruntun.
+- Konfigurasi threshold lewat env:
+  - `ALERT_WEBHOOK_DEAD_LETTER_THRESHOLD`
+  - `ALERT_WEBHOOK_RETRY_DEPTH_THRESHOLD`
+  - `ALERT_WORKER_SKIP_STREAK_THRESHOLD`

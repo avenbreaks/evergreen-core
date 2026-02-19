@@ -3,6 +3,8 @@ import { and, count, eq, inArray, lte } from "drizzle-orm";
 import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
 
+import { getOpsMetricsSnapshot } from "./ops-metrics";
+
 const INTENT_TRACKED_STATUSES = [
   "prepared",
   "committed",
@@ -34,6 +36,7 @@ export type InternalWorkerStatusSummary = {
     deadLetter: number;
     retryReady: number;
   };
+  runtimeMetrics: ReturnType<typeof getOpsMetricsSnapshot>;
   generatedAt: Date;
 };
 
@@ -122,6 +125,7 @@ export const getInternalWorkerStatusSummary = async (): Promise<InternalWorkerSt
       deadLetter: webhookStatusMap.dead_letter,
       retryReady: retryReadyRows[0]?.total ?? 0,
     },
+    runtimeMetrics: getOpsMetricsSnapshot(),
     generatedAt: now,
   };
 };

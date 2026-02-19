@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 
 import { backendEnv } from "../config/env";
 import { runWithOpsRetentionLock } from "../services/ens-reconciliation-lock";
+import { recordWorkerRunMetric } from "../services/ops-metrics";
 import { runOpsRetention } from "../services/ops-retention";
 
 type RunOpsRetentionOnceInput = {
@@ -14,42 +15,61 @@ type RunOpsRetentionOnceInput = {
 
 export const runOpsRetentionOnce = async (app: FastifyInstance, input: RunOpsRetentionOnceInput = {}) => {
   const retentionRunId = randomUUID();
-  const lockResult = await runWithOpsRetentionLock(async () => {
-    app.log.info({ retentionRunId }, "Ops retention run started");
+  try {
+    const lockResult = await runWithOpsRetentionLock(async () => {
+      app.log.info({ retentionRunId }, "Ops retention run started");
 
-    const result = await runOpsRetention({
-      batchLimit: input.batchLimit ?? backendEnv.opsRetentionBatchLimit,
-      processedRetentionDays: input.processedRetentionDays ?? backendEnv.opsWebhookProcessedRetentionDays,
-      deadLetterRetentionDays: input.deadLetterRetentionDays ?? backendEnv.opsWebhookDeadLetterRetentionDays,
+      const result = await runOpsRetention({
+        batchLimit: input.batchLimit ?? backendEnv.opsRetentionBatchLimit,
+        processedRetentionDays: input.processedRetentionDays ?? backendEnv.opsWebhookProcessedRetentionDays,
+        deadLetterRetentionDays: input.deadLetterRetentionDays ?? backendEnv.opsWebhookDeadLetterRetentionDays,
+      });
+
+      return result;
     });
 
-    return result;
-  });
+    if (!lockResult.acquired) {
+      app.log.info({ retentionRunId }, "Ops retention run skipped: advisory lock held by another instance");
+      recordWorkerRunMetric({
+        worker: "ops-retention",
+        outcome: "skipped",
+        runId: retentionRunId,
+      });
+      return {
+        retentionRunId,
+        skipped: true,
+      } as const;
+    }
 
-  if (!lockResult.acquired) {
-    app.log.info({ retentionRunId }, "Ops retention run skipped: advisory lock held by another instance");
+    const result = lockResult.result;
+    app.log.info(
+      {
+        retentionRunId,
+        scanned: result.scanned,
+        deletedProcessed: result.deletedProcessed,
+        deletedDeadLetter: result.deletedDeadLetter,
+      },
+      "Ops retention run completed"
+    );
+    recordWorkerRunMetric({
+      worker: "ops-retention",
+      outcome: "completed",
+      runId: retentionRunId,
+    });
+
     return {
       retentionRunId,
-      skipped: true,
+      skipped: false,
+      result,
     } as const;
+  } catch (error) {
+    recordWorkerRunMetric({
+      worker: "ops-retention",
+      outcome: "failed",
+      runId: retentionRunId,
+    });
+    throw error;
   }
-
-  const result = lockResult.result;
-  app.log.info(
-    {
-      retentionRunId,
-      scanned: result.scanned,
-      deletedProcessed: result.deletedProcessed,
-      deletedDeadLetter: result.deletedDeadLetter,
-    },
-    "Ops retention run completed"
-  );
-
-  return {
-    retentionRunId,
-    skipped: false,
-    result,
-  } as const;
 };
 
 export const registerOpsRetentionJob = (app: FastifyInstance): void => {

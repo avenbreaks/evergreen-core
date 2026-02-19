@@ -7,6 +7,7 @@ import { schema } from "@evergreen-devparty/db";
 
 import { backendEnv } from "../config/env";
 import { HttpError } from "../lib/http-error";
+import { recordWebhookFailedMetric, recordWebhookProcessedMetric } from "./ops-metrics";
 
 export type WebhookEventRecord = typeof schema.ensWebhookEvents.$inferSelect;
 type WebhookEventStatus = WebhookEventRecord["status"];
@@ -221,6 +222,8 @@ export const markWebhookEventProcessed = async (input: { webhookEventId: string;
       updatedAt: now,
     })
     .where(eq(schema.ensWebhookEvents.id, input.webhookEventId));
+
+  recordWebhookProcessedMetric();
 };
 
 export const markWebhookEventFailed = async (input: {
@@ -248,5 +251,14 @@ export const markWebhookEventFailed = async (input: {
     })
     .where(eq(schema.ensWebhookEvents.id, input.webhookEventId));
 
-  return loadWebhookEventById(input.webhookEventId);
+  const updatedEvent = await loadWebhookEventById(input.webhookEventId);
+  recordWebhookFailedMetric({
+    attemptCount: updatedEvent.attemptCount,
+    deadLettered: updatedEvent.status === "dead_letter",
+    webhookEventId: updatedEvent.id,
+    intentId: updatedEvent.intentId,
+    eventType: updatedEvent.eventType,
+  });
+
+  return updatedEvent;
 };

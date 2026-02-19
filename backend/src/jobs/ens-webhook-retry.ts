@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 
 import { backendEnv } from "../config/env";
 import { runWithEnsWebhookRetryLock } from "../services/ens-reconciliation-lock";
+import { recordWorkerRunMetric } from "../services/ops-metrics";
 import { retryFailedWebhookEvents } from "../services/ens-webhook-retry";
 
 type RunEnsWebhookRetryOnceInput = {
@@ -15,42 +16,61 @@ export const runEnsWebhookRetryOnce = async (
   input: RunEnsWebhookRetryOnceInput = {}
 ) => {
   const retryRunId = randomUUID();
-  const lockResult = await runWithEnsWebhookRetryLock(async () => {
-    app.log.info({ retryRunId }, "ENS webhook retry run started");
+  try {
+    const lockResult = await runWithEnsWebhookRetryLock(async () => {
+      app.log.info({ retryRunId }, "ENS webhook retry run started");
 
-    const result = await retryFailedWebhookEvents({
-      limit: input.limit ?? backendEnv.webhookRetryBatchLimit,
+      const result = await retryFailedWebhookEvents({
+        limit: input.limit ?? backendEnv.webhookRetryBatchLimit,
+      });
+
+      return result;
     });
 
-    return result;
-  });
+    if (!lockResult.acquired) {
+      app.log.info({ retryRunId }, "ENS webhook retry run skipped: advisory lock held by another instance");
+      recordWorkerRunMetric({
+        worker: "webhook-retry",
+        outcome: "skipped",
+        runId: retryRunId,
+      });
+      return {
+        retryRunId,
+        skipped: true,
+      } as const;
+    }
 
-  if (!lockResult.acquired) {
-    app.log.info({ retryRunId }, "ENS webhook retry run skipped: advisory lock held by another instance");
+    const result = lockResult.result;
+    app.log.info(
+      {
+        retryRunId,
+        scanned: result.scanned,
+        processed: result.processed,
+        failed: result.failed,
+        deadLettered: result.deadLettered,
+        errors: result.errors,
+      },
+      "ENS webhook retry run completed"
+    );
+    recordWorkerRunMetric({
+      worker: "webhook-retry",
+      outcome: "completed",
+      runId: retryRunId,
+    });
+
     return {
       retryRunId,
-      skipped: true,
+      skipped: false,
+      result,
     } as const;
+  } catch (error) {
+    recordWorkerRunMetric({
+      worker: "webhook-retry",
+      outcome: "failed",
+      runId: retryRunId,
+    });
+    throw error;
   }
-
-  const result = lockResult.result;
-  app.log.info(
-    {
-      retryRunId,
-      scanned: result.scanned,
-      processed: result.processed,
-      failed: result.failed,
-      deadLettered: result.deadLettered,
-      errors: result.errors,
-    },
-    "ENS webhook retry run completed"
-  );
-
-  return {
-    retryRunId,
-    skipped: false,
-    result,
-  } as const;
 };
 
 export const registerEnsWebhookRetryJob = (app: FastifyInstance): void => {

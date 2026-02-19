@@ -69,6 +69,9 @@ const envSchema = z.object({
   OPS_RETENTION_BATCH_LIMIT: z.coerce.number().int().positive().default(500),
   OPS_WEBHOOK_PROCESSED_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
   OPS_WEBHOOK_DEAD_LETTER_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+  ALERT_WEBHOOK_DEAD_LETTER_THRESHOLD: z.coerce.number().int().positive().default(10),
+  ALERT_WEBHOOK_RETRY_DEPTH_THRESHOLD: z.coerce.number().int().positive().default(3),
+  ALERT_WORKER_SKIP_STREAK_THRESHOLD: z.coerce.number().int().positive().default(3),
   ENFORCE_SECURE_TRANSPORT: z.string().optional(),
   TRUST_PROXY: z.string().optional(),
 });
@@ -123,6 +126,9 @@ export type BackendEnv = {
   opsRetentionBatchLimit: number;
   opsWebhookProcessedRetentionDays: number;
   opsWebhookDeadLetterRetentionDays: number;
+  alertWebhookDeadLetterThreshold: number;
+  alertWebhookRetryDepthThreshold: number;
+  alertWorkerSkipStreakThreshold: number;
   enforceSecureTransport: boolean;
   trustProxy: boolean;
 };
@@ -154,6 +160,9 @@ export const backendEnv: BackendEnv = {
   opsRetentionBatchLimit: parsed.data.OPS_RETENTION_BATCH_LIMIT,
   opsWebhookProcessedRetentionDays: parsed.data.OPS_WEBHOOK_PROCESSED_RETENTION_DAYS,
   opsWebhookDeadLetterRetentionDays: parsed.data.OPS_WEBHOOK_DEAD_LETTER_RETENTION_DAYS,
+  alertWebhookDeadLetterThreshold: parsed.data.ALERT_WEBHOOK_DEAD_LETTER_THRESHOLD,
+  alertWebhookRetryDepthThreshold: parsed.data.ALERT_WEBHOOK_RETRY_DEPTH_THRESHOLD,
+  alertWorkerSkipStreakThreshold: parsed.data.ALERT_WORKER_SKIP_STREAK_THRESHOLD,
   enforceSecureTransport: parseBoolean(parsed.data.ENFORCE_SECURE_TRANSPORT, true),
   trustProxy: parseBoolean(parsed.data.TRUST_PROXY, false),
 };
