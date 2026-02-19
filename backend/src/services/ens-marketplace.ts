@@ -198,11 +198,11 @@ const classifyStatus = (expiresAt: bigint, gracePeriod: bigint): "available" | "
   return "available";
 };
 
-const getIntentByUser = async (userId: string, intentId: string) => {
+const getIntentById = async (intentId: string) => {
   const [intent] = await authDb
     .select()
     .from(schema.ensPurchaseIntents)
-    .where(and(eq(schema.ensPurchaseIntents.id, intentId), eq(schema.ensPurchaseIntents.userId, userId)))
+    .where(eq(schema.ensPurchaseIntents.id, intentId))
     .limit(1);
 
   if (!intent) {
@@ -210,6 +210,74 @@ const getIntentByUser = async (userId: string, intentId: string) => {
   }
 
   return intent;
+};
+
+const getIntentByUser = async (userId: string, intentId: string) => {
+  const intent = await getIntentById(intentId);
+
+  if (intent.userId !== userId) {
+    throw new HttpError(404, "INTENT_NOT_FOUND", "ENS purchase intent not found");
+  }
+
+  return intent;
+};
+
+export const getPurchaseIntentById = getIntentById;
+
+export const markPurchaseIntentFailed = async (input: {
+  intentId: string;
+  reason: string;
+  txHash?: string;
+}) => {
+  const intent = await getIntentById(input.intentId);
+
+  const now = new Date();
+  await authDb
+    .update(schema.ensPurchaseIntents)
+    .set({
+      status: "failed",
+      failureReason: input.reason,
+      registerTxHash: input.txHash ?? intent.registerTxHash,
+      updatedAt: now,
+    })
+    .where(eq(schema.ensPurchaseIntents.id, intent.id));
+
+  const [updatedIntent] = await authDb
+    .select()
+    .from(schema.ensPurchaseIntents)
+    .where(eq(schema.ensPurchaseIntents.id, input.intentId))
+    .limit(1);
+
+  if (!updatedIntent) {
+    throw new HttpError(500, "INTENT_UPDATE_FAILED", "Failed to reload updated ENS purchase intent");
+  }
+
+  return summarizeIntent(updatedIntent);
+};
+
+export const confirmCommitmentIntentByIntentId = async (input: { intentId: string; txHash: string }) => {
+  const intent = await getIntentById(input.intentId);
+
+  return confirmCommitmentIntent({
+    userId: intent.userId,
+    intentId: input.intentId,
+    txHash: input.txHash,
+  });
+};
+
+export const confirmRegisterTransactionByIntentId = async (input: {
+  intentId: string;
+  txHash: string;
+  setPrimary?: boolean;
+}) => {
+  const intent = await getIntentById(input.intentId);
+
+  return confirmRegisterTransaction({
+    userId: intent.userId,
+    intentId: input.intentId,
+    txHash: input.txHash,
+    setPrimary: input.setPrimary,
+  });
 };
 
 const buildRegistrationTuple = (intent: {

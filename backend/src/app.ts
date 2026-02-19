@@ -12,6 +12,7 @@ import { healthRoutes } from "./routes/health";
 import { meRoutes } from "./routes/me";
 import { networkRoutes } from "./routes/network";
 import { siweRoutes } from "./routes/siwe";
+import { webhookRoutes } from "./routes/webhooks";
 
 export const buildApp = () => {
   const app = Fastify({
@@ -42,6 +43,7 @@ export const buildApp = () => {
   app.register(siweRoutes);
   app.register(meRoutes);
   app.register(ensRoutes);
+  app.register(webhookRoutes);
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, "Request failed");

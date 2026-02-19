@@ -18,3 +18,5 @@ coverage/
 
 secrets/
 .secrets/
+
+docs/frontend-abis/

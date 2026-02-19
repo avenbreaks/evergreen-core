@@ -6,6 +6,8 @@ import { authDb, linkSiweIdentity, verifySiweChallenge } from "@evergreen-devpar
 import { schema } from "@evergreen-devparty/db";
 
 import { requireAuthSession } from "../lib/auth-session";
+import { createDebounceMiddleware, hashDebouncePayload } from "../middleware/debounce-limit";
+import { requireAuthSessionMiddleware } from "../middleware/auth-session";
 
 const linkWalletBodySchema = z.object({
   message: z.string().min(1),
@@ -14,6 +16,16 @@ const linkWalletBodySchema = z.object({
 });
 
 export const meRoutes: FastifyPluginAsync = async (app) => {
+  app.addHook("preHandler", requireAuthSessionMiddleware);
+
+  const debounceWalletLink = createDebounceMiddleware({
+    namespace: "me.wallet.link",
+    key: async (request) => {
+      const authSession = await requireAuthSession(request);
+      return `${authSession.user.id}:${hashDebouncePayload(request.body)}`;
+    },
+  });
+
   app.get("/api/me", async (request) => {
     const authSession = await requireAuthSession(request);
 
@@ -56,29 +68,35 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
     return { wallets };
   });
 
-  app.post("/api/me/wallets/link", async (request) => {
-    const authSession = await requireAuthSession(request);
-    const body = linkWalletBodySchema.parse(request.body);
+  app.post(
+    "/api/me/wallets/link",
+    {
+      preHandler: debounceWalletLink,
+    },
+    async (request) => {
+      const authSession = await requireAuthSession(request);
+      const body = linkWalletBodySchema.parse(request.body);
 
-    const verification = await verifySiweChallenge({
-      db: authDb,
-      message: body.message,
-      signature: body.signature,
-    });
+      const verification = await verifySiweChallenge({
+        db: authDb,
+        message: body.message,
+        signature: body.signature,
+      });
 
-    await linkSiweIdentity({
-      db: authDb,
-      userId: authSession.user.id,
-      address: verification.address,
-      chainId: verification.chainId,
-      setAsPrimary: body.setAsPrimary,
-    });
+      await linkSiweIdentity({
+        db: authDb,
+        userId: authSession.user.id,
+        address: verification.address,
+        chainId: verification.chainId,
+        setAsPrimary: body.setAsPrimary,
+      });
 
-    return {
-      linked: true,
-      userId: authSession.user.id,
-      walletAddress: verification.address,
-      chainId: verification.chainId,
-    };
-  });
+      return {
+        linked: true,
+        userId: authSession.user.id,
+        walletAddress: verification.address,
+        chainId: verification.chainId,
+      };
+    }
+  );
 };
