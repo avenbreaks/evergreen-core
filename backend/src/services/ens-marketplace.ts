@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, ne } from "drizzle-orm";
 import {
   createPublicClient,
+  decodeFunctionData,
   decodeEventLog,
   http,
   isAddress,
@@ -298,6 +299,86 @@ const buildRegistrationTuple = (intent: {
   referrer: intent.referrer,
 });
 
+type RegisterTxRegistrationArg = {
+  label?: string;
+  owner?: string;
+  duration?: bigint;
+  resolver?: string;
+  data?: readonly Hex[];
+  reverseRecord?: number;
+};
+
+const assertCommitTxMatchesIntent = (input: { txInput: Hex; expectedCommitment: string }): void => {
+  const decoded = decodeFunctionData({
+    abi: getAbiBundle().controllerAbi,
+    data: input.txInput,
+  });
+
+  if (decoded.functionName !== "commit") {
+    throw new HttpError(400, "INVALID_COMMIT_TX", "Transaction input is not a commit call");
+  }
+
+  const commitmentArg = String((decoded.args as readonly unknown[] | undefined)?.[0] ?? "").toLowerCase();
+  if (commitmentArg !== input.expectedCommitment.toLowerCase()) {
+    throw new HttpError(400, "INVALID_COMMIT_TX", "Commitment hash does not match purchase intent");
+  }
+};
+
+const assertRegisterTxMatchesIntent = (input: {
+  txInput: Hex;
+  expectedLabel: string;
+  expectedOwner: string;
+  expectedDurationSeconds: number;
+  expectedResolver: string;
+}): void => {
+  const decoded = decodeFunctionData({
+    abi: getAbiBundle().controllerAbi,
+    data: input.txInput,
+  });
+
+  if (decoded.functionName !== "register") {
+    throw new HttpError(400, "INVALID_REGISTER_TX", "Transaction input is not a register call");
+  }
+
+  const registration = ((decoded.args as readonly unknown[] | undefined)?.[0] ?? null) as
+    | RegisterTxRegistrationArg
+    | null;
+
+  if (!registration) {
+    throw new HttpError(400, "INVALID_REGISTER_TX", "Missing register arguments in transaction input");
+  }
+
+  const label = String(registration.label ?? "").toLowerCase();
+  if (label !== input.expectedLabel) {
+    throw new HttpError(400, "INVALID_REGISTER_TX", "Register call label does not match purchase intent");
+  }
+
+  const owner = String(registration.owner ?? "");
+  if (!owner || normalizeAddress(owner) !== normalizeAddress(input.expectedOwner)) {
+    throw new HttpError(400, "INVALID_REGISTER_TX", "Register call owner does not match purchase intent");
+  }
+
+  const duration = registration.duration ?? 0n;
+  if (duration !== BigInt(input.expectedDurationSeconds)) {
+    throw new HttpError(400, "INVALID_REGISTER_TX", "Register call duration does not match purchase intent");
+  }
+
+  const resolver = String(registration.resolver ?? "");
+  if (!resolver || normalizeAddress(resolver) !== normalizeAddress(input.expectedResolver)) {
+    throw new HttpError(400, "INVALID_REGISTER_TX", "Register call resolver does not match purchase intent");
+  }
+
+  const data = Array.isArray(registration.data) ? registration.data : [];
+  if (data.length > 0) {
+    throw new HttpError(400, "INVALID_REGISTER_TX", "Register call must use empty data array");
+  }
+
+  const reverseRecord = registration.reverseRecord ?? 0;
+  if (reverseRecord !== 0) {
+    throw new HttpError(400, "INVALID_REGISTER_TX", "Register call reverseRecord must be 0");
+  }
+};
+
 const summarizeIntent = (intent: {
   id: string;
   chainId: number;
@@ -535,12 +616,20 @@ export const confirmCommitmentIntent = async (input: {
   txHash: string;
 }) => {
   const intent = await getIntentByUser(input.userId, input.intentId);
+  const txHash = toTxHash(input.txHash);
+  const wasRegistered = intent.status === "registered";
 
-  if (!["prepared", "committed", "registerable"].includes(intent.status)) {
-    throw new HttpError(409, "INTENT_STATE_INVALID", `Cannot confirm commitment from state '${intent.status}'`);
+  if (wasRegistered && intent.commitTxHash && intent.commitTxHash.toLowerCase() !== txHash.toLowerCase()) {
+    throw new HttpError(
+      409,
+      "INTENT_STATE_INVALID",
+      "Intent already registered with a different commitment transaction"
+    );
   }
 
-  const txHash = toTxHash(input.txHash);
+  if (!["prepared", "committed", "registerable", "registered"].includes(intent.status)) {
+    throw new HttpError(409, "INTENT_STATE_INVALID", `Cannot confirm commitment from state '${intent.status}'`);
+  }
 
   const [receipt, tx, commitmentTimestamp] = await Promise.all([
     publicClient.getTransactionReceipt({ hash: txHash }),
@@ -561,6 +650,15 @@ export const confirmCommitmentIntent = async (input: {
     throw new HttpError(400, "INVALID_COMMIT_TX", "Commit transaction target does not match controller");
   }
 
+  if (tx.value !== 0n) {
+    throw new HttpError(400, "INVALID_COMMIT_TX", "Commit transaction must use zero value");
+  }
+
+  assertCommitTxMatchesIntent({
+    txInput: tx.input,
+    expectedCommitment: intent.commitment,
+  });
+
   if ((commitmentTimestamp as bigint) === 0n) {
     throw new HttpError(409, "COMMITMENT_NOT_FOUND", "Commitment was not recorded on-chain");
   }
@@ -572,7 +670,7 @@ export const confirmCommitmentIntent = async (input: {
   const registerBy = secondsToDate(registerBySeconds);
   const now = new Date();
 
-  const status = now >= registerableAt ? "registerable" : "committed";
+  const status = wasRegistered ? "registered" : now >= registerableAt ? "registerable" : "committed";
 
   await authDb
     .update(schema.ensPurchaseIntents)
@@ -694,12 +792,40 @@ export const confirmRegisterTransaction = async (input: {
   setPrimary?: boolean;
 }) => {
   const intent = await getIntentByUser(input.userId, input.intentId);
+  const txHash = toTxHash(input.txHash);
+
+  if (intent.status === "registered") {
+    if (intent.registerTxHash && intent.registerTxHash.toLowerCase() !== txHash.toLowerCase()) {
+      throw new HttpError(
+        409,
+        "INTENT_STATE_INVALID",
+        "Intent already registered with a different register transaction"
+      );
+    }
+
+    const [existingDomain] = await authDb
+      .select()
+      .from(schema.ensIdentities)
+      .where(and(eq(schema.ensIdentities.userId, input.userId), eq(schema.ensIdentities.name, intent.domainName)))
+      .limit(1);
+
+    if (!existingDomain) {
+      throw new HttpError(
+        409,
+        "REGISTER_STATE_INCONSISTENT",
+        "Intent is registered but domain record was not found"
+      );
+    }
+
+    return {
+      domain: existingDomain,
+      registerTxHash: intent.registerTxHash ?? txHash,
+    };
+  }
 
   if (!["committed", "registerable"].includes(intent.status)) {
     throw new HttpError(409, "INTENT_STATE_INVALID", `Cannot confirm register from state '${intent.status}'`);
   }
-
-  const txHash = toTxHash(input.txHash);
 
   const [receipt, tx] = await Promise.all([
     publicClient.getTransactionReceipt({ hash: txHash }),
@@ -717,6 +843,14 @@ export const confirmRegisterTransaction = async (input: {
   if (!tx.to || normalizeAddress(tx.to) !== normalizeAddress(intent.controllerAddress)) {
     throw new HttpError(400, "INVALID_REGISTER_TX", "Register transaction target does not match controller");
   }
+
+  assertRegisterTxMatchesIntent({
+    txInput: tx.input,
+    expectedLabel: intent.label,
+    expectedOwner: intent.walletAddress,
+    expectedDurationSeconds: intent.durationSeconds,
+    expectedResolver: intent.resolverAddress,
+  });
 
   const { controllerAbi } = getAbiBundle();
 

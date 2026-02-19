@@ -1,8 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
+import { HttpError } from "../lib/http-error";
 import { createDebounceMiddleware, hashDebouncePayload } from "../middleware/debounce-limit";
 import { verifyWebhookSecretMiddleware } from "../middleware/webhook-auth";
+import { markWebhookEventFailed, markWebhookEventProcessed, reserveWebhookEvent } from "../services/ens-webhook-events";
 import {
   confirmCommitmentIntentByIntentId,
   confirmRegisterTransactionByIntentId,
@@ -37,6 +39,42 @@ const webhookPayloadSchema = z.discriminatedUnion("event", [
   }),
 ]);
 
+type WebhookPayload = z.infer<typeof webhookPayloadSchema>;
+
+const getPayloadTxHash = (payload: WebhookPayload): string | undefined => {
+  if (!("txHash" in payload.data) || !payload.data.txHash) {
+    return undefined;
+  }
+
+  return payload.data.txHash.toLowerCase();
+};
+
+const buildWebhookDedupeKey = (payload: WebhookPayload): string => {
+  const txHash = getPayloadTxHash(payload) ?? "none";
+  return `${payload.event}:${payload.data.intentId}:${txHash}:${hashDebouncePayload(payload)}`;
+};
+
+const resolveErrorDetails = (error: unknown): { code: string; message: string } => {
+  if (error instanceof HttpError) {
+    return {
+      code: error.code,
+      message: error.message,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      code: "UNHANDLED_WEBHOOK_ERROR",
+      message: error.message,
+    };
+  }
+
+  return {
+    code: "UNHANDLED_WEBHOOK_ERROR",
+    message: "Unknown webhook processing error",
+  };
+};
+
 const debounceWebhookEvent = createDebounceMiddleware({
   namespace: "webhook.ens.tx",
   windowMs: 800,
@@ -62,46 +100,116 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request) => {
       const payload = webhookPayloadSchema.parse(request.body);
-
-      if (payload.event === "ens.commit.confirmed") {
-        const result = await confirmCommitmentIntentByIntentId({
-          intentId: payload.data.intentId,
-          txHash: payload.data.txHash,
-        });
-
-        return {
-          acknowledged: true,
-          event: payload.event,
-          intent: result.intent,
-        };
-      }
-
-      if (payload.event === "ens.register.confirmed") {
-        const result = await confirmRegisterTransactionByIntentId({
-          intentId: payload.data.intentId,
-          txHash: payload.data.txHash,
-          setPrimary: payload.data.setPrimary,
-        });
-
-        return {
-          acknowledged: true,
-          event: payload.event,
-          domain: result.domain,
-          registerTxHash: result.registerTxHash,
-        };
-      }
-
-      const intent = await markPurchaseIntentFailed({
+      const reservation = await reserveWebhookEvent({
         intentId: payload.data.intentId,
-        txHash: payload.data.txHash,
-        reason: payload.data.reason,
+        eventType: payload.event,
+        dedupeKey: buildWebhookDedupeKey(payload),
+        txHash: getPayloadTxHash(payload),
+        payload,
       });
 
-      return {
-        acknowledged: true,
-        event: payload.event,
-        intent,
-      };
+      if (reservation.state === "duplicate_processed") {
+        return {
+          acknowledged: true,
+          deduplicated: true,
+          event: payload.event,
+          intentId: payload.data.intentId,
+          outcome: reservation.event.result ?? null,
+        };
+      }
+
+      if (reservation.state === "duplicate_processing") {
+        return {
+          acknowledged: true,
+          deduplicated: true,
+          event: payload.event,
+          intentId: payload.data.intentId,
+          processing: true,
+        };
+      }
+
+      try {
+        if (payload.event === "ens.commit.confirmed") {
+          const result = await confirmCommitmentIntentByIntentId({
+            intentId: payload.data.intentId,
+            txHash: payload.data.txHash,
+          });
+
+          const response = {
+            acknowledged: true,
+            event: payload.event,
+            intent: result.intent,
+          };
+
+          await markWebhookEventProcessed({
+            webhookEventId: reservation.event.id,
+            result: response,
+          });
+
+          return response;
+        }
+
+        if (payload.event === "ens.register.confirmed") {
+          const result = await confirmRegisterTransactionByIntentId({
+            intentId: payload.data.intentId,
+            txHash: payload.data.txHash,
+            setPrimary: payload.data.setPrimary,
+          });
+
+          const response = {
+            acknowledged: true,
+            event: payload.event,
+            domain: result.domain,
+            registerTxHash: result.registerTxHash,
+          };
+
+          await markWebhookEventProcessed({
+            webhookEventId: reservation.event.id,
+            result: response,
+          });
+
+          return response;
+        }
+
+        const intent = await markPurchaseIntentFailed({
+          intentId: payload.data.intentId,
+          txHash: payload.data.txHash,
+          reason: payload.data.reason,
+        });
+
+        const response = {
+          acknowledged: true,
+          event: payload.event,
+          intent,
+        };
+
+        await markWebhookEventProcessed({
+          webhookEventId: reservation.event.id,
+          result: response,
+        });
+
+        return response;
+      } catch (error) {
+        const details = resolveErrorDetails(error);
+
+        try {
+          await markWebhookEventFailed({
+            webhookEventId: reservation.event.id,
+            code: details.code,
+            message: details.message,
+          });
+        } catch (persistError) {
+          request.log.error(
+            {
+              err: persistError,
+              webhookEventId: reservation.event.id,
+            },
+            "Failed to persist webhook failure state"
+          );
+        }
+
+        throw error;
+      }
     }
   );
 };
