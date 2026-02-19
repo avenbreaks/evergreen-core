@@ -42,9 +42,66 @@ Backend API untuk Evergreen Devparty dengan fokus:
 - Frontend wallet mengeksekusi tx on-chain.
 - Backend menerima tx hash untuk verifikasi receipt dan sinkronisasi state DB.
 
-## ENS reconciliation
-- Endpoint `POST /api/internal/ens/reconcile` untuk rekonsiliasi intent yang stuck (`committed`/`registerable`).
+## ENS webhook internal contract
+- Endpoint: `POST /api/webhooks/ens/tx`
+- Auth wajib: header `x-webhook-secret` (opsional allowlist IP via `WEBHOOK_IP_ALLOWLIST`).
+- Event yang diterima:
+  - `ens.commit.confirmed`
+  - `ens.register.confirmed`
+  - `ens.register.failed`
+- Semua payload memakai `intentId` (UUID), contoh:
+
+```json
+{
+  "event": "ens.register.confirmed",
+  "data": {
+    "intentId": "11111111-1111-4111-8111-111111111111",
+    "txHash": "0x...",
+    "setPrimary": true
+  }
+}
+```
+
+- Retry semantics:
+  - Aman untuk retry callback yang sama berkali-kali.
+  - Backend simpan idempotency event di DB (`ens_webhook_events`) berdasarkan dedupe key.
+  - Jika callback duplikat, response akan mengandung `deduplicated: true`.
+- Pola response:
+  - sukses normal: `acknowledged: true` + hasil event
+  - duplikat selesai: `deduplicated: true` + `outcome`
+  - duplikat masih diproses: `deduplicated: true` + `processing: true`
+- Error code umum:
+  - `WEBHOOK_UNAUTHORIZED`
+  - `WEBHOOK_IP_NOT_ALLOWED`
+  - `VALIDATION_ERROR`
+  - `COMMIT_TX_FAILED`
+  - `REGISTER_TX_FAILED`
+
+## ENS reconciliation contract
+- Endpoint: `POST /api/internal/ens/reconcile`
+- Auth wajib: header `x-webhook-secret`
+- Request body (opsional):
+
+```json
+{
+  "limit": 100,
+  "staleMinutes": 15,
+  "dryRun": false
+}
+```
+
+- Response utama:
+  - `acknowledged`
+  - `reconcileRunId` (untuk tracing log)
+  - ringkasan (`scanned`, `updated`, `expired`, `promotedToRegisterable`, `unchanged`)
+  - daftar `intents` yang berubah status
+- Contoh transition yang dihasilkan:
+  - `committed -> registerable`
+  - `committed/registerable -> expired` jika lewat `registerBy`
+
+## ENS reconciliation worker
 - Optional background job bisa diaktifkan via env:
   - `ENS_RECONCILIATION_INTERVAL_MS` (`0` untuk disable)
   - `ENS_RECONCILIATION_LIMIT`
   - `ENS_RECONCILIATION_STALE_MINUTES`
+- Worker memakai Postgres advisory lock agar tidak ada overlap run antar instance backend.
