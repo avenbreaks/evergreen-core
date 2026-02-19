@@ -2,10 +2,30 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
 import { verifyWebhookSecretMiddleware } from "../middleware/webhook-auth";
-import { reconcileStalePurchaseIntents } from "../services/ens-reconciliation";
 
 type ReconciliationRouteDependencies = {
-  reconcileStalePurchaseIntents: typeof reconcileStalePurchaseIntents;
+  reconcileStalePurchaseIntents: (input: {
+    limit?: number;
+    staleMinutes?: number;
+    dryRun?: boolean;
+  }) => Promise<{
+    scanned: number;
+    updated: number;
+    expired: number;
+    promotedToRegisterable: number;
+    unchanged: number;
+    dryRun: boolean;
+    staleMinutes: number;
+    intents: Array<{
+      intentId: string;
+      domainName: string;
+      previousStatus: string;
+      nextStatus: string;
+      reason: string;
+    }>;
+    startedAt: Date;
+    finishedAt: Date;
+  }>;
 };
 
 type ReconciliationRoutesOptions = {
@@ -18,15 +38,31 @@ const reconcileBodySchema = z.object({
   dryRun: z.boolean().optional(),
 });
 
-const defaultDeps: ReconciliationRouteDependencies = {
-  reconcileStalePurchaseIntents,
+const hasCompleteDependencies = (
+  deps: Partial<ReconciliationRouteDependencies> | undefined
+): deps is ReconciliationRouteDependencies => {
+  if (!deps) {
+    return false;
+  }
+
+  return typeof deps.reconcileStalePurchaseIntents === "function";
+};
+
+const loadDefaultDependencies = async (): Promise<ReconciliationRouteDependencies> => {
+  const reconciliationService = await import("../services/ens-reconciliation");
+
+  return {
+    reconcileStalePurchaseIntents: reconciliationService.reconcileStalePurchaseIntents,
+  };
 };
 
 export const reconciliationRoutes: FastifyPluginAsync<ReconciliationRoutesOptions> = async (app, options) => {
-  const deps: ReconciliationRouteDependencies = {
-    ...defaultDeps,
-    ...(options.deps ?? {}),
-  };
+  const deps = hasCompleteDependencies(options.deps)
+    ? options.deps
+    : {
+        ...(await loadDefaultDependencies()),
+        ...(options.deps ?? {}),
+      };
 
   app.post(
     "/api/internal/ens/reconcile",
