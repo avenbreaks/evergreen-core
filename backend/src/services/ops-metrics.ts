@@ -1,6 +1,13 @@
 import { backendEnv } from "../config/env";
 
-const WORKER_NAMES = ["reconciliation", "tx-watcher", "webhook-retry", "ops-retention", "identity-sync"] as const;
+const WORKER_NAMES = [
+  "reconciliation",
+  "tx-watcher",
+  "webhook-retry",
+  "ops-retention",
+  "identity-sync",
+  "forum-search-sync",
+] as const;
 const WORKER_OUTCOMES = ["completed", "skipped", "failed"] as const;
 
 type WorkerName = (typeof WORKER_NAMES)[number];
@@ -33,6 +40,7 @@ const initWorkerTotals = (): WorkerTotals => ({
   "webhook-retry": { completed: 0, skipped: 0, failed: 0 },
   "ops-retention": { completed: 0, skipped: 0, failed: 0 },
   "identity-sync": { completed: 0, skipped: 0, failed: 0 },
+  "forum-search-sync": { completed: 0, skipped: 0, failed: 0 },
 });
 
 const initWorkerSkipStreak = (): WorkerSkipStreak => ({
@@ -41,6 +49,7 @@ const initWorkerSkipStreak = (): WorkerSkipStreak => ({
   "webhook-retry": 0,
   "ops-retention": 0,
   "identity-sync": 0,
+  "forum-search-sync": 0,
 });
 
 const state: OpsMetricsSnapshot = {
@@ -68,6 +77,7 @@ const cloneWorkerTotals = (input: WorkerTotals): WorkerTotals => ({
   "webhook-retry": { ...input["webhook-retry"] },
   "ops-retention": { ...input["ops-retention"] },
   "identity-sync": { ...input["identity-sync"] },
+  "forum-search-sync": { ...input["forum-search-sync"] },
 });
 
 const cloneWorkerSkipStreak = (input: WorkerSkipStreak): WorkerSkipStreak => ({
@@ -76,6 +86,7 @@ const cloneWorkerSkipStreak = (input: WorkerSkipStreak): WorkerSkipStreak => ({
   "webhook-retry": input["webhook-retry"],
   "ops-retention": input["ops-retention"],
   "identity-sync": input["identity-sync"],
+  "forum-search-sync": input["forum-search-sync"],
 });
 
 export const setOpsMetricAlertHandler = (handler: OpsMetricAlertHandler | null): void => {

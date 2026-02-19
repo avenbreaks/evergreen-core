@@ -9,6 +9,7 @@ import { registerEnsIdentitySyncJob } from "./jobs/ens-identity-sync";
 import { registerEnsReconciliationJob } from "./jobs/ens-reconciliation";
 import { registerEnsWebhookRetryJob } from "./jobs/ens-webhook-retry";
 import { registerEnsTxWatcherJob } from "./jobs/ens-tx-watcher";
+import { registerForumSearchSyncJob } from "./jobs/forum-search-sync";
 import { registerOpsRetentionJob } from "./jobs/ops-retention";
 import { HttpError } from "./lib/http-error";
 import { authBridgeRoutes } from "./routes/auth-bridge";
@@ -83,6 +84,7 @@ export const buildApp = () => {
   registerEnsWebhookRetryJob(app);
   registerEnsTxWatcherJob(app);
   registerEnsIdentitySyncJob(app);
+  registerForumSearchSyncJob(app);
   registerOpsRetentionJob(app);
 
   app.setErrorHandler((error, request, reply) => {

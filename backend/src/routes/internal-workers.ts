@@ -9,6 +9,7 @@ type InternalWorkersRouteDependencies = {
   runEnsTxWatcherOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
   runEnsIdentitySyncOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number }) => Promise<unknown>;
   runEnsWebhookRetryOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
+  runForumSearchSyncOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
   runOpsRetentionOnce: (app: unknown, input?: {
     batchLimit?: number;
     processedRetentionDays?: number;
@@ -54,17 +55,19 @@ const hasCompleteDependencies = (
     typeof deps.runEnsTxWatcherOnce === "function" &&
     typeof deps.runEnsIdentitySyncOnce === "function" &&
     typeof deps.runEnsWebhookRetryOnce === "function" &&
+    typeof deps.runForumSearchSyncOnce === "function" &&
     typeof deps.runOpsRetentionOnce === "function" &&
     typeof deps.getInternalWorkerStatusSummary === "function"
   );
 };
 
 const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependencies> => {
-  const [reconciliationJob, txWatcherJob, identitySyncJob, webhookRetryJob, opsRetentionJob, workerStatusService] = await Promise.all([
+  const [reconciliationJob, txWatcherJob, identitySyncJob, webhookRetryJob, forumSearchSyncJob, opsRetentionJob, workerStatusService] = await Promise.all([
     import("../jobs/ens-reconciliation"),
     import("../jobs/ens-tx-watcher"),
     import("../jobs/ens-identity-sync"),
     import("../jobs/ens-webhook-retry"),
+    import("../jobs/forum-search-sync"),
     import("../jobs/ops-retention"),
     import("../services/internal-worker-status"),
   ]);
@@ -74,6 +77,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     runEnsTxWatcherOnce: txWatcherJob.runEnsTxWatcherOnce as InternalWorkersRouteDependencies["runEnsTxWatcherOnce"],
     runEnsIdentitySyncOnce: identitySyncJob.runEnsIdentitySyncOnce as InternalWorkersRouteDependencies["runEnsIdentitySyncOnce"],
     runEnsWebhookRetryOnce: webhookRetryJob.runEnsWebhookRetryOnce as InternalWorkersRouteDependencies["runEnsWebhookRetryOnce"],
+    runForumSearchSyncOnce: forumSearchSyncJob.runForumSearchSyncOnce as InternalWorkersRouteDependencies["runForumSearchSyncOnce"],
     runOpsRetentionOnce: opsRetentionJob.runOpsRetentionOnce as InternalWorkersRouteDependencies["runOpsRetentionOnce"],
     getInternalWorkerStatusSummary: workerStatusService.getInternalWorkerStatusSummary,
   };
@@ -182,6 +186,25 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
       return {
         acknowledged: true,
         worker: "ops-retention",
+        run,
+      };
+    }
+  );
+
+  app.post(
+    "/api/internal/workers/forum-search-sync/run",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
+    },
+    async (request) => {
+      const body = runLimitBodySchema.parse(request.body ?? {});
+      const run = await deps.runForumSearchSyncOnce(app, {
+        limit: body.limit,
+      });
+
+      return {
+        acknowledged: true,
+        worker: "forum-search-sync",
         run,
       };
     }

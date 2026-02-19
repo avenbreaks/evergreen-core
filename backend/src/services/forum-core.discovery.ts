@@ -4,7 +4,48 @@ import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
 
 import { HttpError } from "../lib/http-error";
+import { searchForumContentViaMeili } from "./forum-search-meili";
 import { summarizeComment, summarizePost } from "./forum-core.shared";
+
+const orderByIds = <T extends { id: string }>(rows: T[], ids: string[]): T[] => {
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+  const ordered: T[] = [];
+
+  for (const id of ids) {
+    const row = rowById.get(id);
+    if (!row) {
+      continue;
+    }
+
+    ordered.push(row);
+  }
+
+  return ordered;
+};
+
+const searchForumContentFromDb = async (query: string, limit: number) => {
+  const pattern = `%${query}%`;
+
+  const [posts, comments] = await Promise.all([
+    authDb
+      .select()
+      .from(schema.forumPosts)
+      .where(and(eq(schema.forumPosts.status, "published"), or(ilike(schema.forumPosts.title, pattern), ilike(schema.forumPosts.contentPlaintext, pattern))))
+      .orderBy(desc(schema.forumPosts.lastActivityAt))
+      .limit(limit),
+    authDb
+      .select()
+      .from(schema.forumComments)
+      .where(and(eq(schema.forumComments.status, "published"), ilike(schema.forumComments.contentPlaintext, pattern)))
+      .orderBy(desc(schema.forumComments.createdAt))
+      .limit(limit),
+  ]);
+
+  return {
+    posts: posts.map((post) => summarizePost(post)),
+    comments: comments.map((comment) => summarizeComment(comment)),
+  };
+};
 
 export const getForumFeed = async (input: {
   limit?: number;
@@ -55,27 +96,55 @@ export const searchForumContent = async (input: { query: string; limit?: number 
   }
 
   const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
-  const pattern = `%${query}%`;
 
-  const [posts, comments] = await Promise.all([
-    authDb
-      .select()
-      .from(schema.forumPosts)
-      .where(and(eq(schema.forumPosts.status, "published"), or(ilike(schema.forumPosts.title, pattern), ilike(schema.forumPosts.contentPlaintext, pattern))))
-      .orderBy(desc(schema.forumPosts.lastActivityAt))
-      .limit(limit),
-    authDb
-      .select()
-      .from(schema.forumComments)
-      .where(and(eq(schema.forumComments.status, "published"), ilike(schema.forumComments.contentPlaintext, pattern)))
-      .orderBy(desc(schema.forumComments.createdAt))
-      .limit(limit),
-  ]);
+  try {
+    const meili = await searchForumContentViaMeili({
+      query,
+      limit,
+    });
 
-  return {
-    posts: posts.map((post) => summarizePost(post)),
-    comments: comments.map((comment) => summarizeComment(comment)),
-  };
+    if (!meili) {
+      return searchForumContentFromDb(query, limit);
+    }
+
+    const [posts, comments] = await Promise.all([
+      meili.postIds.length > 0
+        ? authDb
+            .select()
+            .from(schema.forumPosts)
+            .where(and(eq(schema.forumPosts.status, "published"), inArray(schema.forumPosts.id, meili.postIds)))
+        : Promise.resolve([]),
+      meili.commentIds.length > 0
+        ? authDb
+            .select({
+              comment: schema.forumComments,
+              postStatus: schema.forumPosts.status,
+            })
+            .from(schema.forumComments)
+            .leftJoin(schema.forumPosts, eq(schema.forumPosts.id, schema.forumComments.postId))
+            .where(and(eq(schema.forumComments.status, "published"), inArray(schema.forumComments.id, meili.commentIds)))
+        : Promise.resolve([]),
+    ]);
+
+    const orderedPosts = orderByIds(posts, meili.postIds);
+    const orderedComments = orderByIds(
+      comments
+        .filter((entry) => entry.postStatus === "published")
+        .map((entry) => entry.comment),
+      meili.commentIds
+    );
+
+    if (orderedPosts.length === 0 && orderedComments.length === 0) {
+      return searchForumContentFromDb(query, limit);
+    }
+
+    return {
+      posts: orderedPosts.map((post) => summarizePost(post)),
+      comments: orderedComments.map((comment) => summarizeComment(comment)),
+    };
+  } catch {
+    return searchForumContentFromDb(query, limit);
+  }
 };
 
 export const listTrendingTags = async (limit?: number) => {

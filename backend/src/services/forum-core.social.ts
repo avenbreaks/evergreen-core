@@ -6,9 +6,9 @@ import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
 
 import { HttpError } from "../lib/http-error";
+import { assertCanPinPost } from "./forum-permissions";
 import {
   createNotification,
-  ensurePostEditableByUser,
   ensureProfileMetrics,
   ensureUserExists,
   getCommentById,
@@ -360,7 +360,11 @@ export const setForumPostPinned = async (input: {
   postId: string;
   pinned: boolean;
 }) => {
-  const post = await ensurePostEditableByUser(input.postId, input.userId);
+  const { post } = await assertCanPinPost({
+    actorUserId: input.userId,
+    postId: input.postId,
+  });
+
   await authDb
     .update(schema.forumPosts)
     .set({

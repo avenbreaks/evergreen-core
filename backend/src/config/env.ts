@@ -72,6 +72,14 @@ const envSchema = z.object({
   OPS_RETENTION_BATCH_LIMIT: z.coerce.number().int().positive().default(500),
   OPS_WEBHOOK_PROCESSED_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
   OPS_WEBHOOK_DEAD_LETTER_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+  FORUM_SEARCH_SYNC_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
+  FORUM_SEARCH_SYNC_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
+  FORUM_SEARCH_SYNC_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  FORUM_SEARCH_SYNC_BASE_DELAY_MS: z.coerce.number().int().positive().default(5000),
+  FORUM_SEARCH_SYNC_MAX_DELAY_MS: z.coerce.number().int().positive().default(300000),
+  MEILI_URL: z.string().optional(),
+  MEILI_API_KEY: z.string().optional(),
+  MEILI_FORUM_INDEX_UID: z.string().min(1).default("forum_content"),
   ALERT_WEBHOOK_DEAD_LETTER_THRESHOLD: z.coerce.number().int().positive().default(10),
   ALERT_WEBHOOK_RETRY_DEPTH_THRESHOLD: z.coerce.number().int().positive().default(3),
   ALERT_WORKER_SKIP_STREAK_THRESHOLD: z.coerce.number().int().positive().default(3),
@@ -132,6 +140,14 @@ export type BackendEnv = {
   opsRetentionBatchLimit: number;
   opsWebhookProcessedRetentionDays: number;
   opsWebhookDeadLetterRetentionDays: number;
+  forumSearchSyncIntervalMs: number;
+  forumSearchSyncBatchLimit: number;
+  forumSearchSyncMaxAttempts: number;
+  forumSearchSyncBaseDelayMs: number;
+  forumSearchSyncMaxDelayMs: number;
+  meiliUrl: string | null;
+  meiliApiKey: string | null;
+  meiliForumIndexUid: string;
   alertWebhookDeadLetterThreshold: number;
   alertWebhookRetryDepthThreshold: number;
   alertWorkerSkipStreakThreshold: number;
@@ -169,6 +185,14 @@ export const backendEnv: BackendEnv = {
   opsRetentionBatchLimit: parsed.data.OPS_RETENTION_BATCH_LIMIT,
   opsWebhookProcessedRetentionDays: parsed.data.OPS_WEBHOOK_PROCESSED_RETENTION_DAYS,
   opsWebhookDeadLetterRetentionDays: parsed.data.OPS_WEBHOOK_DEAD_LETTER_RETENTION_DAYS,
+  forumSearchSyncIntervalMs: parsed.data.FORUM_SEARCH_SYNC_INTERVAL_MS,
+  forumSearchSyncBatchLimit: parsed.data.FORUM_SEARCH_SYNC_BATCH_LIMIT,
+  forumSearchSyncMaxAttempts: parsed.data.FORUM_SEARCH_SYNC_MAX_ATTEMPTS,
+  forumSearchSyncBaseDelayMs: parsed.data.FORUM_SEARCH_SYNC_BASE_DELAY_MS,
+  forumSearchSyncMaxDelayMs: parsed.data.FORUM_SEARCH_SYNC_MAX_DELAY_MS,
+  meiliUrl: parsed.data.MEILI_URL?.trim() || null,
+  meiliApiKey: parsed.data.MEILI_API_KEY?.trim() || null,
+  meiliForumIndexUid: parsed.data.MEILI_FORUM_INDEX_UID,
   alertWebhookDeadLetterThreshold: parsed.data.ALERT_WEBHOOK_DEAD_LETTER_THRESHOLD,
   alertWebhookRetryDepthThreshold: parsed.data.ALERT_WEBHOOK_RETRY_DEPTH_THRESHOLD,
   alertWorkerSkipStreakThreshold: parsed.data.ALERT_WORKER_SKIP_STREAK_THRESHOLD,

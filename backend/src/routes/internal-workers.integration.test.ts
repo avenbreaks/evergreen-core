@@ -25,6 +25,7 @@ type InternalWorkersDeps = {
   runEnsTxWatcherOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
   runEnsIdentitySyncOnce: (_app: unknown, input?: { limit?: number; staleMinutes?: number }) => Promise<unknown>;
   runEnsWebhookRetryOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
+  runForumSearchSyncOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
   runOpsRetentionOnce: (
     _app: unknown,
     input?: { batchLimit?: number; processedRetentionDays?: number; deadLetterRetentionDays?: number }
@@ -42,6 +43,7 @@ const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorker
     runEnsTxWatcherOnce: unexpected("runEnsTxWatcherOnce"),
     runEnsIdentitySyncOnce: unexpected("runEnsIdentitySyncOnce"),
     runEnsWebhookRetryOnce: unexpected("runEnsWebhookRetryOnce"),
+    runForumSearchSyncOnce: unexpected("runForumSearchSyncOnce"),
     runOpsRetentionOnce: unexpected("runOpsRetentionOnce"),
     getInternalWorkerStatusSummary: unexpected("getInternalWorkerStatusSummary"),
     ...overrides,
@@ -133,10 +135,11 @@ test("internal workers route triggers reconciliation with request input", async 
   });
 });
 
-test("internal workers route triggers tx watcher, identity sync, webhook retry, and ops retention", async (t) => {
+test("internal workers route triggers tx watcher, identity sync, webhook retry, forum search sync, and ops retention", async (t) => {
   let txWatcherCalls = 0;
   let identitySyncCalls = 0;
   let webhookRetryCalls = 0;
+  let forumSearchSyncCalls = 0;
   let opsRetentionCalls = 0;
 
   const app = await buildInternalWorkersTestApp({
@@ -151,6 +154,13 @@ test("internal workers route triggers tx watcher, identity sync, webhook retry, 
       webhookRetryCalls += 1;
       return {
         retryRunId: "retry-run-1",
+        skipped: false,
+      };
+    },
+    runForumSearchSyncOnce: async () => {
+      forumSearchSyncCalls += 1;
+      return {
+        syncRunId: "forum-search-sync-run-1",
         skipped: false,
       };
     },
@@ -221,13 +231,26 @@ test("internal workers route triggers tx watcher, identity sync, webhook retry, 
     },
   });
 
+  const forumSearchSyncResponse = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search-sync/run",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {
+      limit: 5,
+    },
+  });
+
   assert.equal(txWatcherResponse.statusCode, 200);
   assert.equal(identitySyncResponse.statusCode, 200);
   assert.equal(webhookRetryResponse.statusCode, 200);
+  assert.equal(forumSearchSyncResponse.statusCode, 200);
   assert.equal(retentionResponse.statusCode, 200);
   assert.equal(txWatcherCalls, 1);
   assert.equal(identitySyncCalls, 1);
   assert.equal(webhookRetryCalls, 1);
+  assert.equal(forumSearchSyncCalls, 1);
   assert.equal(opsRetentionCalls, 1);
 });
 
@@ -250,6 +273,12 @@ test("internal workers route returns worker status summary", async (t) => {
         deadLetter: 4,
         retryReady: 3,
       },
+      forumSearchSync: {
+        pending: 5,
+        processing: 4,
+        failed: 3,
+        deadLetter: 2,
+      },
       generatedAt: new Date(),
     }),
   });
@@ -270,4 +299,5 @@ test("internal workers route returns worker status summary", async (t) => {
   assert.equal(response.json().acknowledged, true);
   assert.equal(response.json().status.intents.stuckTotal, 6);
   assert.equal(response.json().status.webhooks.deadLetter, 4);
+  assert.equal(response.json().status.forumSearchSync.deadLetter, 2);
 });

@@ -7,6 +7,7 @@ import { schema } from "@evergreen-devparty/db";
 
 import { HttpError } from "../lib/http-error";
 import { analyzeMarkdown } from "./forum-markdown";
+import { enqueueForumSearchSync } from "./forum-search-sync-queue";
 import {
   MAX_REPLY_DEPTH,
   createNotification,
@@ -116,6 +117,12 @@ export const createForumPost = async (input: {
     });
   }
 
+  await enqueueForumSearchSync({
+    targetType: "post",
+    targetId: postId,
+    operation: "upsert",
+  });
+
   const [post] = await authDb.select().from(schema.forumPosts).where(eq(schema.forumPosts.id, postId)).limit(1);
   if (!post) {
     throw new HttpError(500, "POST_CREATE_FAILED", "Failed to create forum post");
@@ -167,6 +174,12 @@ export const updateForumPost = async (input: {
     mentions: analysis.mentions,
   });
 
+  await enqueueForumSearchSync({
+    targetType: "post",
+    targetId: input.postId,
+    operation: "upsert",
+  });
+
   const [updated] = await authDb
     .select()
     .from(schema.forumPosts)
@@ -201,6 +214,12 @@ export const softDeleteForumPost = async (input: { userId: string; postId: strin
       updatedAt: now,
     })
     .where(eq(schema.profileMetrics.userId, post.authorId));
+
+  await enqueueForumSearchSync({
+    targetType: "post",
+    targetId: input.postId,
+    operation: "delete",
+  });
 
   return {
     postId: input.postId,
@@ -333,6 +352,12 @@ export const createForumComment = async (input: {
     mentions: analysis.mentions,
   });
 
+  await enqueueForumSearchSync({
+    targetType: "comment",
+    targetId: commentId,
+    operation: "upsert",
+  });
+
   await ensureProfileMetrics(input.userId);
   await authDb
     .update(schema.profileMetrics)
@@ -424,6 +449,12 @@ export const updateForumComment = async (input: {
     mentions: analysis.mentions,
   });
 
+  await enqueueForumSearchSync({
+    targetType: "comment",
+    targetId: comment.id,
+    operation: "upsert",
+  });
+
   const [updated] = await authDb
     .select()
     .from(schema.forumComments)
@@ -466,6 +497,12 @@ export const softDeleteForumComment = async (input: { userId: string; commentId:
       updatedAt: now,
     })
     .where(eq(schema.profileMetrics.userId, comment.authorId));
+
+  await enqueueForumSearchSync({
+    targetType: "comment",
+    targetId: input.commentId,
+    operation: "delete",
+  });
 
   return {
     commentId: input.commentId,

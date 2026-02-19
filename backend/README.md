@@ -62,6 +62,7 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/internal/workers/tx-watcher/run` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/identity-sync/run` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/webhook-retry/run` (auth via `x-internal-secret`)
+  - `POST /api/internal/workers/forum-search-sync/run` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/ops-retention/run` (auth via `x-internal-secret`)
   - `GET /api/internal/workers/status` (auth via `x-internal-secret`)
 - Metrics:
@@ -83,6 +84,12 @@ Backend API untuk Evergreen Devparty dengan fokus:
 - Backend menyiapkan payload tx (`to`, `functionName`, `args`, `value`).
 - Frontend wallet mengeksekusi tx on-chain.
 - Backend menerima tx hash untuk verifikasi receipt dan sinkronisasi state DB.
+
+## Forum search model
+- Endpoint `GET /api/forum/search` membaca ranking dari Meilisearch bila `MEILI_URL` tersedia.
+- Sinkronisasi index dilakukan async lewat queue DB (`forum_search_sync_queue`) dan worker internal.
+- Worker bisa dijalankan manual via `POST /api/internal/workers/forum-search-sync/run`.
+- Bila Meilisearch tidak dikonfigurasi/bermasalah, search otomatis fallback ke query DB.
 
 ## ENS webhook internal contract
 - Endpoint: `POST /api/webhooks/ens/tx`

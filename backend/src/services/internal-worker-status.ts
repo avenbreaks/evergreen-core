@@ -16,10 +16,12 @@ const INTENT_TRACKED_STATUSES = [
 
 const WEBHOOK_TRACKED_STATUSES = ["processing", "processed", "failed", "dead_letter"] as const;
 const IDENTITY_TRACKED_STATUSES = ["pending", "active", "failed", "revoked"] as const;
+const FORUM_SEARCH_SYNC_TRACKED_STATUSES = ["pending", "processing", "failed", "dead_letter"] as const;
 
 type IntentStatus = (typeof INTENT_TRACKED_STATUSES)[number];
 type WebhookStatus = (typeof WEBHOOK_TRACKED_STATUSES)[number];
 type IdentityStatus = (typeof IDENTITY_TRACKED_STATUSES)[number];
+type ForumSearchSyncStatus = (typeof FORUM_SEARCH_SYNC_TRACKED_STATUSES)[number];
 
 export type InternalWorkerStatusSummary = {
   intents: {
@@ -43,6 +45,12 @@ export type InternalWorkerStatusSummary = {
     active: number;
     failed: number;
     revoked: number;
+  };
+  forumSearchSync: {
+    pending: number;
+    processing: number;
+    failed: number;
+    deadLetter: number;
   };
   runtimeMetrics: ReturnType<typeof getOpsMetricsSnapshot>;
   generatedAt: Date;
@@ -95,10 +103,25 @@ const buildIdentityStatusMap = (rows: Array<{ status: IdentityStatus; total: num
   return map;
 };
 
+const buildForumSearchSyncStatusMap = (rows: Array<{ status: ForumSearchSyncStatus; total: number }>) => {
+  const map: Record<ForumSearchSyncStatus, number> = {
+    pending: 0,
+    processing: 0,
+    failed: 0,
+    dead_letter: 0,
+  };
+
+  for (const row of rows) {
+    map[row.status] = row.total;
+  }
+
+  return map;
+};
+
 export const getInternalWorkerStatusSummary = async (): Promise<InternalWorkerStatusSummary> => {
   const now = new Date();
 
-  const [intentStatusRows, webhookStatusRows, identityStatusRows, retryReadyRows] = await Promise.all([
+  const [intentStatusRows, webhookStatusRows, identityStatusRows, forumSearchSyncStatusRows, retryReadyRows] = await Promise.all([
     authDb
       .select({
         status: schema.ensPurchaseIntents.status,
@@ -125,6 +148,14 @@ export const getInternalWorkerStatusSummary = async (): Promise<InternalWorkerSt
       .groupBy(schema.ensIdentities.status),
     authDb
       .select({
+        status: schema.forumSearchSyncQueue.status,
+        total: count(),
+      })
+      .from(schema.forumSearchSyncQueue)
+      .where(inArray(schema.forumSearchSyncQueue.status, FORUM_SEARCH_SYNC_TRACKED_STATUSES))
+      .groupBy(schema.forumSearchSyncQueue.status),
+    authDb
+      .select({
         total: count(),
       })
       .from(schema.ensWebhookEvents)
@@ -139,6 +170,9 @@ export const getInternalWorkerStatusSummary = async (): Promise<InternalWorkerSt
   const intentStatusMap = buildIntentStatusMap(intentStatusRows as Array<{ status: IntentStatus; total: number }>);
   const webhookStatusMap = buildWebhookStatusMap(webhookStatusRows as Array<{ status: WebhookStatus; total: number }>);
   const identityStatusMap = buildIdentityStatusMap(identityStatusRows as Array<{ status: IdentityStatus; total: number }>);
+  const forumSearchSyncStatusMap = buildForumSearchSyncStatusMap(
+    forumSearchSyncStatusRows as Array<{ status: ForumSearchSyncStatus; total: number }>
+  );
 
   return {
     intents: {
@@ -162,6 +196,12 @@ export const getInternalWorkerStatusSummary = async (): Promise<InternalWorkerSt
       active: identityStatusMap.active,
       failed: identityStatusMap.failed,
       revoked: identityStatusMap.revoked,
+    },
+    forumSearchSync: {
+      pending: forumSearchSyncStatusMap.pending,
+      processing: forumSearchSyncStatusMap.processing,
+      failed: forumSearchSyncStatusMap.failed,
+      deadLetter: forumSearchSyncStatusMap.dead_letter,
     },
     runtimeMetrics: getOpsMetricsSnapshot(),
     generatedAt: now,

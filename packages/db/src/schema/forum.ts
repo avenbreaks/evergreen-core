@@ -30,6 +30,14 @@ export const forumNotificationTypeEnum = pgEnum("forum_notification_type", [
   "share",
   "report_update",
 ]);
+export const forumSearchSyncTargetTypeEnum = pgEnum("forum_search_sync_target_type", ["post", "comment"]);
+export const forumSearchSyncOperationEnum = pgEnum("forum_search_sync_operation", ["upsert", "delete"]);
+export const forumSearchSyncStatusEnum = pgEnum("forum_search_sync_status", [
+  "pending",
+  "processing",
+  "failed",
+  "dead_letter",
+]);
 
 export const forumPosts = pgTable(
   "forum_posts",
@@ -322,6 +330,28 @@ export const forumNotifications = pgTable(
   },
   (table) => ({
     recipientIdx: index("forum_notifications_recipient_idx").on(table.recipientUserId, table.readAt, table.createdAt),
+  })
+);
+
+export const forumSearchSyncQueue = pgTable(
+  "forum_search_sync_queue",
+  {
+    id: text("id").primaryKey(),
+    targetType: forumSearchSyncTargetTypeEnum("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    operation: forumSearchSyncOperationEnum("operation").notNull().default("upsert"),
+    status: forumSearchSyncStatusEnum("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    lastErrorCode: varchar("last_error_code", { length: 64 }),
+    lastErrorMessage: text("last_error_message"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    targetUnique: uniqueIndex("forum_search_sync_target_unique").on(table.targetType, table.targetId),
+    statusRetryIdx: index("forum_search_sync_status_retry_idx").on(table.status, table.nextRetryAt),
   })
 );
 

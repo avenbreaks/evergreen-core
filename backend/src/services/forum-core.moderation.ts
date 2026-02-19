@@ -6,7 +6,7 @@ import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
 
 import { HttpError } from "../lib/http-error";
-import { ensureModerator, ensureUserExists, getCommentById, getPostById } from "./forum-core.shared";
+import { assertCanLockPost, ensureNoOpenDuplicateReport, resolveForumReportTarget } from "./forum-permissions";
 
 export const createForumReport = async (input: {
   reporterUserId: string;
@@ -19,31 +19,25 @@ export const createForumReport = async (input: {
     throw new HttpError(400, "INVALID_REASON", "Report reason is required");
   }
 
-  let postId: string | null = null;
-  let commentId: string | null = null;
-  let reportedUserId: string | null = null;
+  const target = await resolveForumReportTarget({
+    reporterUserId: input.reporterUserId,
+    targetType: input.targetType,
+    targetId: input.targetId,
+  });
 
-  if (input.targetType === "post") {
-    const post = await getPostById(input.targetId);
-    postId = post.id;
-    reportedUserId = post.authorId;
-  } else if (input.targetType === "comment") {
-    const comment = await getCommentById(input.targetId);
-    commentId = comment.id;
-    postId = comment.postId;
-    reportedUserId = comment.authorId;
-  } else {
-    await ensureUserExists(input.targetId);
-    reportedUserId = input.targetId;
-  }
+  await ensureNoOpenDuplicateReport({
+    reporterUserId: input.reporterUserId,
+    targetType: input.targetType,
+    targetId: input.targetId,
+  });
 
   const reportId = randomUUID();
   await authDb.insert(schema.forumReports).values({
     id: reportId,
     targetType: input.targetType,
-    postId,
-    commentId,
-    reportedUserId,
+    postId: target.postId,
+    commentId: target.commentId,
+    reportedUserId: target.reportedUserId,
     reporterUserId: input.reporterUserId,
     reason,
     status: "open",
@@ -62,8 +56,10 @@ export const lockForumPostAsModerator = async (input: {
   postId: string;
   locked: boolean;
 }) => {
-  await ensureModerator(input.moderatorUserId);
-  const post = await getPostById(input.postId);
+  const { post } = await assertCanLockPost({
+    actorUserId: input.moderatorUserId,
+    postId: input.postId,
+  });
 
   await authDb
     .update(schema.forumPosts)
