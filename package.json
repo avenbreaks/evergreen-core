@@ -17,6 +17,7 @@
     "backend:dev": "pnpm --filter @evergreen-devparty/backend dev",
     "backend:build": "pnpm --filter @evergreen-devparty/backend build",
     "backend:start": "pnpm --filter @evergreen-devparty/backend start",
-    "backend:typecheck": "pnpm --filter @evergreen-devparty/backend typecheck"
+    "backend:typecheck": "pnpm --filter @evergreen-devparty/backend typecheck",
+    "backend:test": "pnpm --filter @evergreen-devparty/backend test"
   }
 }

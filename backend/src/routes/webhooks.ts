@@ -4,12 +4,47 @@ import { z } from "zod";
 import { HttpError } from "../lib/http-error";
 import { createDebounceMiddleware, hashDebouncePayload } from "../middleware/debounce-limit";
 import { verifyWebhookSecretMiddleware } from "../middleware/webhook-auth";
-import { markWebhookEventFailed, markWebhookEventProcessed, reserveWebhookEvent } from "../services/ens-webhook-events";
-import {
-  confirmCommitmentIntentByIntentId,
-  confirmRegisterTransactionByIntentId,
-  markPurchaseIntentFailed,
-} from "../services/ens-marketplace";
+
+type WebhookRouteDependencies = {
+  reserveWebhookEvent: (input: {
+    intentId: string;
+    eventType: string;
+    dedupeKey: string;
+    txHash?: string;
+    payload: unknown;
+  }) => Promise<
+    | {
+        state: "reserved";
+        event: { id: string; result?: unknown };
+      }
+    | {
+        state: "duplicate_processed";
+        event: { id: string; result?: unknown };
+      }
+    | {
+        state: "duplicate_processing";
+        event: { id: string; result?: unknown };
+      }
+  >;
+  markWebhookEventProcessed: (input: { webhookEventId: string; result: unknown }) => Promise<void>;
+  markWebhookEventFailed: (input: { webhookEventId: string; code: string; message: string }) => Promise<void>;
+  confirmCommitmentIntentByIntentId: (input: { intentId: string; txHash: string }) => Promise<{ intent: unknown }>;
+  confirmRegisterTransactionByIntentId: (input: {
+    intentId: string;
+    txHash: string;
+    setPrimary?: boolean;
+  }) => Promise<{ domain: unknown; registerTxHash: string }>;
+  markPurchaseIntentFailed: (input: {
+    intentId: string;
+    reason: string;
+    txHash?: string;
+  }) => Promise<unknown>;
+};
+
+type WebhookRoutesOptions = {
+  deps?: Partial<WebhookRouteDependencies>;
+  disableDebounce?: boolean;
+};
 
 const txHashSchema = z.string().regex(/^0x[a-fA-F0-9]{64}$/);
 
@@ -92,15 +127,57 @@ const debounceWebhookEvent = createDebounceMiddleware({
   },
 });
 
-export const webhookRoutes: FastifyPluginAsync = async (app) => {
+const hasCompleteDependencies = (
+  deps: Partial<WebhookRouteDependencies> | undefined
+): deps is WebhookRouteDependencies => {
+  if (!deps) {
+    return false;
+  }
+
+  return (
+    typeof deps.reserveWebhookEvent === "function" &&
+    typeof deps.markWebhookEventProcessed === "function" &&
+    typeof deps.markWebhookEventFailed === "function" &&
+    typeof deps.confirmCommitmentIntentByIntentId === "function" &&
+    typeof deps.confirmRegisterTransactionByIntentId === "function" &&
+    typeof deps.markPurchaseIntentFailed === "function"
+  );
+};
+
+const loadDefaultDependencies = async (): Promise<WebhookRouteDependencies> => {
+  const [webhookEventsService, ensMarketplaceService] = await Promise.all([
+    import("../services/ens-webhook-events"),
+    import("../services/ens-marketplace"),
+  ]);
+
+  return {
+    reserveWebhookEvent: webhookEventsService.reserveWebhookEvent,
+    markWebhookEventProcessed: webhookEventsService.markWebhookEventProcessed,
+    markWebhookEventFailed: webhookEventsService.markWebhookEventFailed,
+    confirmCommitmentIntentByIntentId: ensMarketplaceService.confirmCommitmentIntentByIntentId,
+    confirmRegisterTransactionByIntentId: ensMarketplaceService.confirmRegisterTransactionByIntentId,
+    markPurchaseIntentFailed: ensMarketplaceService.markPurchaseIntentFailed,
+  };
+};
+
+export const webhookRoutes: FastifyPluginAsync<WebhookRoutesOptions> = async (app, options) => {
+  const deps = hasCompleteDependencies(options.deps)
+    ? options.deps
+    : {
+        ...(await loadDefaultDependencies()),
+        ...(options.deps ?? {}),
+      };
+
   app.post(
     "/api/webhooks/ens/tx",
     {
-      preHandler: [verifyWebhookSecretMiddleware, debounceWebhookEvent],
+      preHandler: options.disableDebounce
+        ? [verifyWebhookSecretMiddleware]
+        : [verifyWebhookSecretMiddleware, debounceWebhookEvent],
     },
     async (request) => {
       const payload = webhookPayloadSchema.parse(request.body);
-      const reservation = await reserveWebhookEvent({
+      const reservation = await deps.reserveWebhookEvent({
         intentId: payload.data.intentId,
         eventType: payload.event,
         dedupeKey: buildWebhookDedupeKey(payload),
@@ -130,7 +207,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
 
       try {
         if (payload.event === "ens.commit.confirmed") {
-          const result = await confirmCommitmentIntentByIntentId({
+          const result = await deps.confirmCommitmentIntentByIntentId({
             intentId: payload.data.intentId,
             txHash: payload.data.txHash,
           });
@@ -141,7 +218,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
             intent: result.intent,
           };
 
-          await markWebhookEventProcessed({
+          await deps.markWebhookEventProcessed({
             webhookEventId: reservation.event.id,
             result: response,
           });
@@ -150,7 +227,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
         }
 
         if (payload.event === "ens.register.confirmed") {
-          const result = await confirmRegisterTransactionByIntentId({
+          const result = await deps.confirmRegisterTransactionByIntentId({
             intentId: payload.data.intentId,
             txHash: payload.data.txHash,
             setPrimary: payload.data.setPrimary,
@@ -163,7 +240,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
             registerTxHash: result.registerTxHash,
           };
 
-          await markWebhookEventProcessed({
+          await deps.markWebhookEventProcessed({
             webhookEventId: reservation.event.id,
             result: response,
           });
@@ -171,7 +248,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
           return response;
         }
 
-        const intent = await markPurchaseIntentFailed({
+        const intent = await deps.markPurchaseIntentFailed({
           intentId: payload.data.intentId,
           txHash: payload.data.txHash,
           reason: payload.data.reason,
@@ -183,7 +260,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
           intent,
         };
 
-        await markWebhookEventProcessed({
+        await deps.markWebhookEventProcessed({
           webhookEventId: reservation.event.id,
           result: response,
         });
@@ -193,7 +270,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
         const details = resolveErrorDetails(error);
 
         try {
-          await markWebhookEventFailed({
+          await deps.markWebhookEventFailed({
             webhookEventId: reservation.event.id,
             code: details.code,
             message: details.message,
