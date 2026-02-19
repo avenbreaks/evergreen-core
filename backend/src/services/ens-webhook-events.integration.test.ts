@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { eq, inArray, sql } from "drizzle-orm";
@@ -30,6 +30,11 @@ const canConnectToDatabase = async (): Promise<boolean> => {
 
 const buildHex = (seed: string): string => `0x${seed.repeat(64).slice(0, 64)}`;
 
+const buildIntentHex = (intentId: string): string => {
+  const hashed = createHash("sha256").update(intentId).digest("hex");
+  return `0x${hashed}`;
+};
+
 const createBaseIntent = (input: { intentId: string; userId: string; labelSuffix: string; now: Date }) => ({
   id: input.intentId,
   userId: input.userId,
@@ -42,8 +47,8 @@ const createBaseIntent = (input: { intentId: string; userId: string; labelSuffix
   resolverAddress: "0x47e9cbbd0ee572d996ffd0d7aa17796c5a247590",
   controllerAddress: "0x00a4c7ff46ab778d8333421d42715db2aa6b1b4d",
   baseRegistrarAddress: "0xe077dc5c0a336f76662f024d98c0f20be0ad9d1c",
-  secretHash: buildHex("a"),
-  commitment: buildHex(input.labelSuffix.slice(0, 1) || "b"),
+  secretHash: buildIntentHex(input.intentId),
+  commitment: buildIntentHex(`${input.intentId}-commit`),
   minCommitmentAgeSeconds: 60,
   maxCommitmentAgeSeconds: 86400,
   status: "prepared" as const,
