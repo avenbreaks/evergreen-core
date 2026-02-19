@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
+import { requireSecureTransportMiddleware } from "../middleware/require-secure-transport";
 import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
 
 type InternalWorkersRouteDependencies = {
@@ -80,7 +81,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.post(
     "/api/internal/workers/reconciliation/run",
     {
-      preHandler: verifyInternalOpsSecretMiddleware,
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
     },
     async (request) => {
       const body = runReconciliationBodySchema.parse(request.body ?? {});
@@ -101,7 +102,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.post(
     "/api/internal/workers/tx-watcher/run",
     {
-      preHandler: verifyInternalOpsSecretMiddleware,
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
     },
     async (request) => {
       const body = runLimitBodySchema.parse(request.body ?? {});
@@ -120,7 +121,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.post(
     "/api/internal/workers/webhook-retry/run",
     {
-      preHandler: verifyInternalOpsSecretMiddleware,
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
     },
     async (request) => {
       const body = runLimitBodySchema.parse(request.body ?? {});
@@ -139,7 +140,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.post(
     "/api/internal/workers/ops-retention/run",
     {
-      preHandler: verifyInternalOpsSecretMiddleware,
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
     },
     async (request) => {
       const body = runOpsRetentionBodySchema.parse(request.body ?? {});
@@ -160,7 +161,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.get(
     "/api/internal/workers/status",
     {
-      preHandler: verifyInternalOpsSecretMiddleware,
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
     },
     async () => {
       const status = await deps.getInternalWorkerStatusSummary();

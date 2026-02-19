@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 
 import { HttpError } from "../lib/http-error";
 import { createDebounceMiddleware, hashDebouncePayload } from "../middleware/debounce-limit";
+import { requireSecureTransportMiddleware } from "../middleware/require-secure-transport";
 import { verifyWebhookSignatureMiddleware } from "../middleware/webhook-auth";
 import {
   ensWebhookPayloadSchema,
@@ -159,8 +160,8 @@ export const webhookRoutes: FastifyPluginAsync<WebhookRoutesOptions> = async (ap
     "/api/webhooks/ens/tx",
     {
       preHandler: options.disableDebounce
-        ? [verifyWebhookSignatureMiddleware]
-        : [verifyWebhookSignatureMiddleware, debounceWebhookEvent],
+        ? [requireSecureTransportMiddleware, verifyWebhookSignatureMiddleware]
+        : [requireSecureTransportMiddleware, verifyWebhookSignatureMiddleware, debounceWebhookEvent],
     },
     async (request) => {
       const payload = ensWebhookPayloadSchema.parse(request.body);
