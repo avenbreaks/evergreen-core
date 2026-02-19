@@ -25,7 +25,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "6377:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -66,12 +66,22 @@ services:
     image: axllent/mailpit:v1.20
     container_name: devparty-mailpit
     restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: ${MAILPIT_MAX_MESSAGES:-1000}
+      MP_SMTP_AUTH_ACCEPT_ANY: ${MAILPIT_SMTP_AUTH_ACCEPT_ANY:-true}
+      MP_SEND_API_AUTH_ACCEPT_ANY: ${MAILPIT_SEND_API_AUTH_ACCEPT_ANY:-true}
+      MP_UI_BIND_ADDR: 0.0.0.0:8025
+      MP_SMTP_BIND_ADDR: 0.0.0.0:1025
     ports:
       - "1025:1025"
       - "8025:8025"
+    volumes:
+      - mailpit_data:/data
 
 volumes:
   postgres_data:
   redis_data:
   meili_data:
   nocodb_data:
+  mailpit_data:

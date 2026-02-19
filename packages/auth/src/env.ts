@@ -44,6 +44,23 @@ const parsePositiveInt = (value: string | undefined, fallback: number): number =
   return parsed;
 };
 
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (!value) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+};
+
 const ensureSecret = (value: string): string => {
   if (value.length < 32) {
     throw new Error("BETTER_AUTH_SECRET must be at least 32 characters");
@@ -61,12 +78,31 @@ const ensureProviderPair = (clientId?: string, clientSecret?: string): void => {
   }
 };
 
+const ensureOptionalPair = (leftName: string, rightName: string, left?: string, right?: string): void => {
+  const hasLeft = Boolean(left);
+  const hasRight = Boolean(right);
+
+  if (hasLeft !== hasRight) {
+    throw new Error(`${leftName} and ${rightName} must both be set or both omitted`);
+  }
+};
+
 const nodeEnv = process.env.NODE_ENV ?? "development";
 const trustedOrigins = parseCsv(process.env.BETTER_AUTH_TRUSTED_ORIGINS);
 
 const githubClientId = process.env.GITHUB_CLIENT_ID;
 const githubClientSecret = process.env.GITHUB_CLIENT_SECRET;
 ensureProviderPair(githubClientId, githubClientSecret);
+
+const mailProvider = process.env.MAIL_PROVIDER === "unosend" ? "unosend" : "smtp";
+const smtpUser = process.env.SMTP_USER;
+const smtpPass = process.env.SMTP_PASS;
+ensureOptionalPair("SMTP_USER", "SMTP_PASS", smtpUser, smtpPass);
+
+const unosendApiKey = process.env.UNOSEND_API_KEY;
+if (mailProvider === "unosend" && !unosendApiKey) {
+  throw new Error("UNOSEND_API_KEY is required when MAIL_PROVIDER=unosend");
+}
 
 export const authEnv = {
   nodeEnv,
@@ -76,6 +112,23 @@ export const authEnv = {
   trustedOrigins: trustedOrigins.length > 0 ? trustedOrigins : ["http://localhost:3000"],
   githubClientId,
   githubClientSecret,
+  mail: {
+    provider: mailProvider,
+    from: process.env.MAIL_FROM ?? "Evergreen Devparty <no-reply@localhost>",
+    replyTo: process.env.MAIL_REPLY_TO,
+    smtp: {
+      host: process.env.SMTP_HOST ?? "localhost",
+      port: parsePositiveInt(process.env.SMTP_PORT, 1025),
+      secure: parseBoolean(process.env.SMTP_SECURE, false),
+      ignoreTls: parseBoolean(process.env.SMTP_IGNORE_TLS, true),
+      user: smtpUser,
+      pass: smtpPass,
+    },
+    unosend: {
+      baseUrl: process.env.UNOSEND_BASE_URL ?? "https://www.unosend.co/api/v1",
+      apiKey: unosendApiKey,
+    },
+  },
   siwe: {
     domain: process.env.SIWE_DOMAIN ?? "localhost",
     uri: process.env.SIWE_URI ?? "http://localhost:3000",

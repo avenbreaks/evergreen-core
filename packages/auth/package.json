@@ -9,6 +9,7 @@
     "@evergreen-devparty/db": "workspace:*",
     "better-auth": "^1.4.0",
     "drizzle-orm": "^0.44.5",
+    "nodemailer": "^6.10.1",
     "siwe": "^3.0.0"
   },
   "devDependencies": {

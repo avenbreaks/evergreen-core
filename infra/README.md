@@ -4,10 +4,19 @@ Infrastructure stack for local Evergreen Devparty development.
 
 ## Services
 - PostgreSQL (`localhost:5436`)
-- Redis (`localhost:6379`)
+- Redis (`localhost:6377`)
 - Meilisearch (`localhost:7700`)
 - NocoDB (`localhost:8080`)
 - Mailpit SMTP + inbox UI (`localhost:1025`, `localhost:8025`)
+
+## Mailpit Runtime Env
+- `MAILPIT_MAX_MESSAGES` (default `1000`)
+- `MAILPIT_SMTP_AUTH_ACCEPT_ANY` (default `true`)
+- `MAILPIT_SEND_API_AUTH_ACCEPT_ANY` (default `true`)
+
+Untuk aplikasi lokal, gunakan SMTP:
+- host: `localhost`
+- port: `1025`
 
 ## Blockchain Network (External)
 - RPC: `https://rpc-api.oorthnexus.xyz`

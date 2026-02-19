@@ -3,6 +3,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 
 import { authEnv } from "./env";
+import { sendResetPasswordEmail, sendVerificationEmail } from "./mail";
 
 export const authDb = createDb(authEnv.databaseUrl);
 
@@ -48,6 +49,23 @@ export const auth = betterAuth({
     enabled: true,
     requireEmailVerification: false,
     minPasswordLength: 8,
+    sendResetPassword: async ({ user, url }) => {
+      await sendResetPasswordEmail({
+        email: user.email,
+        name: user.name,
+        url,
+      });
+    },
+  },
+  emailVerification: {
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendVerificationEmail({
+        email: user.email,
+        name: user.name,
+        url,
+      });
+    },
+    sendOnSignUp: true,
   },
   ...(socialProviders ? { socialProviders } : {}),
   rateLimit: {
