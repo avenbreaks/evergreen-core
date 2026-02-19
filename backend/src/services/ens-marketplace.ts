@@ -256,6 +256,75 @@ export const markPurchaseIntentFailed = async (input: {
   return summarizeIntent(updatedIntent);
 };
 
+export const retryPurchaseIntentById = async (input: { intentId: string; reason?: string }) => {
+  const intent = await getIntentById(input.intentId);
+
+  if (intent.status === "registered") {
+    throw new HttpError(409, "INTENT_STATE_INVALID", "Registered intent cannot be retried");
+  }
+
+  const now = new Date();
+  const withinRegisterWindow = Boolean(intent.registerBy && intent.registerBy > now);
+  const isRegisterable = Boolean(intent.registerableAt && intent.registerableAt <= now && withinRegisterWindow);
+
+  const nextStatus: "prepared" | "committed" | "registerable" = isRegisterable
+    ? "registerable"
+    : intent.committedAt
+      ? "committed"
+      : "prepared";
+
+  await authDb
+    .update(schema.ensPurchaseIntents)
+    .set({
+      status: nextStatus,
+      failureReason: input.reason ?? null,
+      updatedAt: now,
+    })
+    .where(eq(schema.ensPurchaseIntents.id, intent.id));
+
+  const [updatedIntent] = await authDb
+    .select()
+    .from(schema.ensPurchaseIntents)
+    .where(eq(schema.ensPurchaseIntents.id, intent.id))
+    .limit(1);
+
+  if (!updatedIntent) {
+    throw new HttpError(500, "INTENT_UPDATE_FAILED", "Failed to reload retried ENS purchase intent");
+  }
+
+  return summarizeIntent(updatedIntent);
+};
+
+export const expirePurchaseIntentById = async (input: { intentId: string; reason?: string }) => {
+  const intent = await getIntentById(input.intentId);
+
+  if (intent.status === "registered") {
+    throw new HttpError(409, "INTENT_STATE_INVALID", "Registered intent cannot be expired");
+  }
+
+  const now = new Date();
+  await authDb
+    .update(schema.ensPurchaseIntents)
+    .set({
+      status: "expired",
+      failureReason: input.reason ?? "Expired by operator",
+      updatedAt: now,
+    })
+    .where(eq(schema.ensPurchaseIntents.id, intent.id));
+
+  const [updatedIntent] = await authDb
+    .select()
+    .from(schema.ensPurchaseIntents)
+    .where(eq(schema.ensPurchaseIntents.id, intent.id))
+    .limit(1);
+
+  if (!updatedIntent) {
+    throw new HttpError(500, "INTENT_UPDATE_FAILED", "Failed to reload expired ENS purchase intent");
+  }
+
+  return summarizeIntent(updatedIntent);
+};
+
 export const confirmCommitmentIntentByIntentId = async (input: { intentId: string; txHash: string }) => {
   const intent = await getIntentById(input.intentId);
 

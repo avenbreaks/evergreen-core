@@ -11,6 +11,7 @@ import { HttpError } from "./lib/http-error";
 import { authBridgeRoutes } from "./routes/auth-bridge";
 import { ensRoutes } from "./routes/ens";
 import { healthRoutes } from "./routes/health";
+import { internalEnsOpsRoutes } from "./routes/internal-ens-ops";
 import { meRoutes } from "./routes/me";
 import { networkRoutes } from "./routes/network";
 import { reconciliationRoutes } from "./routes/reconciliation";
@@ -46,6 +47,7 @@ export const buildApp = () => {
   app.register(siweRoutes);
   app.register(meRoutes);
   app.register(ensRoutes);
+  app.register(internalEnsOpsRoutes);
   app.register(reconciliationRoutes);
   app.register(webhookRoutes);
 
