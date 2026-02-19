@@ -60,4 +60,6 @@ test("metrics route requires internal secret", async (t) => {
   assert.match(authorized.headers["content-type"] ?? "", /text\/plain/);
   assert.match(authorized.body, /evergreen_backend_webhook_processed_total/);
   assert.match(authorized.body, /evergreen_backend_worker_runs_total/);
+  assert.match(authorized.body, /evergreen_backend_forum_actions_total/);
+  assert.match(authorized.body, /evergreen_backend_forum_endpoint_latency_ms_sum/);
 });

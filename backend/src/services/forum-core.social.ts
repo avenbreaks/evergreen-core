@@ -6,6 +6,7 @@ import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
 
 import { HttpError } from "../lib/http-error";
+import { recordForumActionMetric } from "./forum-metrics";
 import { assertCanPinPost } from "./forum-permissions";
 import {
   createNotification,
@@ -78,6 +79,8 @@ export const toggleForumReaction = async (input: {
         .where(eq(schema.forumComments.id, commentId as string));
     }
 
+    recordForumActionMetric("reaction_toggle");
+
     return {
       active: false,
       reactionType,
@@ -145,6 +148,8 @@ export const toggleForumReaction = async (input: {
       },
     });
   }
+
+  recordForumActionMetric("reaction_toggle");
 
   return {
     active: true,

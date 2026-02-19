@@ -7,6 +7,7 @@ import { schema } from "@evergreen-devparty/db";
 
 import { HttpError } from "../lib/http-error";
 import { analyzeMarkdown } from "./forum-markdown";
+import { recordForumActionMetric } from "./forum-metrics";
 import { enqueueForumSearchSync } from "./forum-search-sync-queue";
 import {
   MAX_REPLY_DEPTH,
@@ -405,6 +406,8 @@ export const createForumComment = async (input: {
   if (!comment) {
     throw new HttpError(500, "COMMENT_CREATE_FAILED", "Failed to create forum comment");
   }
+
+  recordForumActionMetric("comment_create");
 
   return {
     comment: summarizeComment(comment),

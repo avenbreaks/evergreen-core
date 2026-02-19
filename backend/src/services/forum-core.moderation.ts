@@ -6,6 +6,7 @@ import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
 
 import { HttpError } from "../lib/http-error";
+import { recordForumActionMetric } from "./forum-metrics";
 import { assertCanLockPost, ensureNoOpenDuplicateReport, resolveForumReportTarget } from "./forum-permissions";
 
 export const createForumReport = async (input: {
@@ -44,6 +45,8 @@ export const createForumReport = async (input: {
     createdAt: new Date(),
     updatedAt: new Date(),
   });
+
+  recordForumActionMetric("report_create");
 
   return {
     reportId,

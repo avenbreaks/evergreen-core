@@ -67,6 +67,7 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `GET /api/internal/workers/status` (auth via `x-internal-secret`)
 - Metrics:
   - `GET /metrics` (Prometheus text format, auth via `x-internal-secret`)
+  - termasuk metrik forum actions (`reactions/comments/reports`) dan latency per endpoint forum.
 
 ## Setup cepat
 1. Copy env:
