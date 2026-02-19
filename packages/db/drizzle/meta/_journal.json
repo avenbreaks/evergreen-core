@@ -8,6 +8,13 @@
       "when": 1771488000000,
       "tag": "0000_initial_auth_user_core",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1771545600000,
+      "tag": "0001_ens_marketplace_flow",
+      "breakpoints": true
     }
   ]
 }

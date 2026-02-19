@@ -1,7 +1,7 @@
 import { relations } from "drizzle-orm";
 
 import { authAccounts, authSessions } from "./auth";
-import { ensIdentities, profiles, users, wallets } from "./user-core";
+import { ensIdentities, ensPurchaseIntents, profiles, users, wallets } from "./user-core";
 
 export const usersRelations = relations(users, ({ one, many }) => ({
   profile: one(profiles, {
@@ -9,10 +9,8 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     references: [profiles.userId],
   }),
   wallets: many(wallets),
-  ensIdentity: one(ensIdentities, {
-    fields: [users.id],
-    references: [ensIdentities.userId],
-  }),
+  ensIdentities: many(ensIdentities),
+  ensPurchaseIntents: many(ensPurchaseIntents),
   authAccounts: many(authAccounts),
   authSessions: many(authSessions),
 }));
@@ -34,6 +32,13 @@ export const walletsRelations = relations(wallets, ({ one }) => ({
 export const ensIdentitiesRelations = relations(ensIdentities, ({ one }) => ({
   user: one(users, {
     fields: [ensIdentities.userId],
+    references: [users.id],
+  }),
+}));
+
+export const ensPurchaseIntentsRelations = relations(ensPurchaseIntents, ({ one }) => ({
+  user: one(users, {
+    fields: [ensPurchaseIntents.userId],
     references: [users.id],
   }),
 }));
