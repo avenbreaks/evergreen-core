@@ -1,7 +1,7 @@
 import { relations } from "drizzle-orm";
 
 import { authAccounts, authSessions } from "./auth";
-import { ensIdentities, ensPurchaseIntents, profiles, users, wallets } from "./user-core";
+import { ensIdentities, ensPurchaseIntents, ensWebhookEvents, profiles, users, wallets } from "./user-core";
 
 export const usersRelations = relations(users, ({ one, many }) => ({
   profile: one(profiles, {
@@ -36,10 +36,18 @@ export const ensIdentitiesRelations = relations(ensIdentities, ({ one }) => ({
   }),
 }));
 
-export const ensPurchaseIntentsRelations = relations(ensPurchaseIntents, ({ one }) => ({
+export const ensPurchaseIntentsRelations = relations(ensPurchaseIntents, ({ one, many }) => ({
   user: one(users, {
     fields: [ensPurchaseIntents.userId],
     references: [users.id],
+  }),
+  webhookEvents: many(ensWebhookEvents),
+}));
+
+export const ensWebhookEventsRelations = relations(ensWebhookEvents, ({ one }) => ({
+  intent: one(ensPurchaseIntents, {
+    fields: [ensWebhookEvents.intentId],
+    references: [ensPurchaseIntents.id],
   }),
 }));
 

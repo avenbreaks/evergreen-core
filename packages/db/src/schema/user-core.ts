@@ -24,6 +24,11 @@ export const ensPurchaseIntentStatusEnum = pgEnum("ens_purchase_intent_status", 
   "failed",
   "cancelled",
 ]);
+export const ensWebhookEventStatusEnum = pgEnum("ens_webhook_event_status", [
+  "processing",
+  "processed",
+  "failed",
+]);
 
 export const users = pgTable(
   "users",
@@ -158,5 +163,33 @@ export const ensPurchaseIntents = pgTable(
     commitmentUnique: uniqueIndex("ens_purchase_intents_commitment_unique").on(table.commitment),
     commitTxUnique: uniqueIndex("ens_purchase_intents_commit_tx_hash_unique").on(table.commitTxHash),
     registerTxUnique: uniqueIndex("ens_purchase_intents_register_tx_hash_unique").on(table.registerTxHash),
+  })
+);
+
+export const ensWebhookEvents = pgTable(
+  "ens_webhook_events",
+  {
+    id: text("id").primaryKey(),
+    intentId: text("intent_id")
+      .notNull()
+      .references(() => ensPurchaseIntents.id, { onDelete: "cascade" }),
+    eventType: varchar("event_type", { length: 64 }).notNull(),
+    dedupeKey: varchar("dedupe_key", { length: 255 }).notNull(),
+    txHash: varchar("tx_hash", { length: 66 }),
+    payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+    result: jsonb("result"),
+    status: ensWebhookEventStatusEnum("status").notNull().default("processing"),
+    attemptCount: integer("attempt_count").notNull().default(1),
+    lastErrorCode: varchar("last_error_code", { length: 64 }),
+    lastErrorMessage: text("last_error_message"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    intentIdx: index("ens_webhook_events_intent_id_idx").on(table.intentId),
+    statusIdx: index("ens_webhook_events_status_idx").on(table.status),
+    txHashIdx: index("ens_webhook_events_tx_hash_idx").on(table.txHash),
+    dedupeUnique: uniqueIndex("ens_webhook_events_dedupe_key_unique").on(table.dedupeKey),
   })
 );
