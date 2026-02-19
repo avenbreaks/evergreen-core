@@ -58,7 +58,24 @@ const origins = parsed.data.CORS_ORIGINS.split(",")
   .map((entry) => entry.trim())
   .filter(Boolean);
 
-export const backendEnv = {
+export type BackendEnv = {
+  host: string;
+  port: number;
+  logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
+  corsOrigins: string[];
+  rateLimitMax: number;
+  rateLimitWindowMs: number;
+  debounceWindowMs: number;
+  bodyLimitBytes: number;
+  webhookSecret: string | undefined;
+  webhookIpAllowlist: string[];
+  ensReconciliationIntervalMs: number;
+  ensReconciliationLimit: number;
+  ensReconciliationStaleMinutes: number;
+  trustProxy: boolean;
+};
+
+export const backendEnv: BackendEnv = {
   host: parsed.data.HOST,
   port: parsed.data.PORT,
   logLevel: parsed.data.LOG_LEVEL,
@@ -73,4 +90,4 @@ export const backendEnv = {
   ensReconciliationLimit: parsed.data.ENS_RECONCILIATION_LIMIT,
   ensReconciliationStaleMinutes: parsed.data.ENS_RECONCILIATION_STALE_MINUTES,
   trustProxy: parseBoolean(parsed.data.TRUST_PROXY, false),
-} as const;
+};
