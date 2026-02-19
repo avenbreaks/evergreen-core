@@ -36,6 +36,13 @@
       "when": 1771804800000,
       "tag": "0004_webhook_retention_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1771891200000,
+      "tag": "0005_forum_core",
+      "breakpoints": true
     }
   ]
 }
