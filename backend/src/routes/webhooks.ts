@@ -1,9 +1,13 @@
 import type { FastifyPluginAsync } from "fastify";
-import { z } from "zod";
 
 import { HttpError } from "../lib/http-error";
 import { createDebounceMiddleware, hashDebouncePayload } from "../middleware/debounce-limit";
 import { verifyWebhookSignatureMiddleware } from "../middleware/webhook-auth";
+import {
+  ensWebhookPayloadSchema,
+  processEnsWebhookPayload,
+  type EnsWebhookPayload,
+} from "../services/ens-webhook-processor";
 
 type WebhookRouteDependencies = {
   reserveWebhookEvent: (input: {
@@ -27,7 +31,11 @@ type WebhookRouteDependencies = {
       }
   >;
   markWebhookEventProcessed: (input: { webhookEventId: string; result: unknown }) => Promise<void>;
-  markWebhookEventFailed: (input: { webhookEventId: string; code: string; message: string }) => Promise<void>;
+  markWebhookEventFailed: (input: {
+    webhookEventId: string;
+    code: string;
+    message: string;
+  }) => Promise<unknown>;
   confirmCommitmentIntentByIntentId: (input: { intentId: string; txHash: string }) => Promise<{ intent: unknown }>;
   confirmRegisterTransactionByIntentId: (input: {
     intentId: string;
@@ -46,35 +54,7 @@ type WebhookRoutesOptions = {
   disableDebounce?: boolean;
 };
 
-const txHashSchema = z.string().regex(/^0x[a-fA-F0-9]{64}$/);
-
-const webhookPayloadSchema = z.discriminatedUnion("event", [
-  z.object({
-    event: z.literal("ens.commit.confirmed"),
-    data: z.object({
-      intentId: z.string().uuid(),
-      txHash: txHashSchema,
-    }),
-  }),
-  z.object({
-    event: z.literal("ens.register.confirmed"),
-    data: z.object({
-      intentId: z.string().uuid(),
-      txHash: txHashSchema,
-      setPrimary: z.boolean().optional(),
-    }),
-  }),
-  z.object({
-    event: z.literal("ens.register.failed"),
-    data: z.object({
-      intentId: z.string().uuid(),
-      txHash: txHashSchema.optional(),
-      reason: z.string().min(1).max(500),
-    }),
-  }),
-]);
-
-type WebhookPayload = z.infer<typeof webhookPayloadSchema>;
+type WebhookPayload = EnsWebhookPayload;
 
 const getPayloadTxHash = (payload: WebhookPayload): string | undefined => {
   if (!("txHash" in payload.data) || !payload.data.txHash) {
@@ -121,7 +101,7 @@ const debounceWebhookEvent = createDebounceMiddleware({
   namespace: "webhook.ens.tx",
   windowMs: 800,
   key: (request) => {
-    const parsed = webhookPayloadSchema.safeParse(request.body);
+    const parsed = ensWebhookPayloadSchema.safeParse(request.body);
     if (!parsed.success) {
       return `${request.ip}:invalid`;
     }
@@ -183,7 +163,7 @@ export const webhookRoutes: FastifyPluginAsync<WebhookRoutesOptions> = async (ap
         : [verifyWebhookSignatureMiddleware, debounceWebhookEvent],
     },
     async (request) => {
-      const payload = webhookPayloadSchema.parse(request.body);
+      const payload = ensWebhookPayloadSchema.parse(request.body);
       const reservation = await deps.reserveWebhookEvent({
         intentId: payload.data.intentId,
         eventType: payload.event,
@@ -220,61 +200,11 @@ export const webhookRoutes: FastifyPluginAsync<WebhookRoutesOptions> = async (ap
       }
 
       try {
-        if (payload.event === "ens.commit.confirmed") {
-          const result = await deps.confirmCommitmentIntentByIntentId({
-            intentId: payload.data.intentId,
-            txHash: payload.data.txHash,
-          });
-
-          const response = {
-            acknowledged: true,
-            event: payload.event,
-            intent: result.intent,
-          };
-
-          await deps.markWebhookEventProcessed({
-            webhookEventId: reservation.event.id,
-            result: response,
-          });
-
-          request.log.info(logContext, "ENS webhook processed successfully");
-          return response;
-        }
-
-        if (payload.event === "ens.register.confirmed") {
-          const result = await deps.confirmRegisterTransactionByIntentId({
-            intentId: payload.data.intentId,
-            txHash: payload.data.txHash,
-            setPrimary: payload.data.setPrimary,
-          });
-
-          const response = {
-            acknowledged: true,
-            event: payload.event,
-            domain: result.domain,
-            registerTxHash: result.registerTxHash,
-          };
-
-          await deps.markWebhookEventProcessed({
-            webhookEventId: reservation.event.id,
-            result: response,
-          });
-
-          request.log.info(logContext, "ENS webhook processed successfully");
-          return response;
-        }
-
-        const intent = await deps.markPurchaseIntentFailed({
-          intentId: payload.data.intentId,
-          txHash: payload.data.txHash,
-          reason: payload.data.reason,
+        const response = await processEnsWebhookPayload(payload, {
+          confirmCommitmentIntentByIntentId: deps.confirmCommitmentIntentByIntentId,
+          confirmRegisterTransactionByIntentId: deps.confirmRegisterTransactionByIntentId,
+          markPurchaseIntentFailed: deps.markPurchaseIntentFailed,
         });
-
-        const response = {
-          acknowledged: true,
-          event: payload.event,
-          intent,
-        };
 
         await deps.markWebhookEventProcessed({
           webhookEventId: reservation.event.id,

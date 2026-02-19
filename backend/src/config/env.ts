@@ -42,6 +42,11 @@ const envSchema = z.object({
   WEBHOOK_SECRET: z.string().optional(),
   WEBHOOK_IP_ALLOWLIST: z.string().optional(),
   WEBHOOK_SIGNATURE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  WEBHOOK_RETRY_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
+  WEBHOOK_RETRY_BATCH_LIMIT: z.coerce.number().int().positive().default(50),
+  WEBHOOK_RETRY_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  WEBHOOK_RETRY_BASE_DELAY_MS: z.coerce.number().int().positive().default(5000),
+  WEBHOOK_RETRY_MAX_DELAY_MS: z.coerce.number().int().positive().default(300000),
   ENS_RECONCILIATION_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
   ENS_RECONCILIATION_LIMIT: z.coerce.number().int().positive().default(100),
   ENS_RECONCILIATION_STALE_MINUTES: z.coerce.number().int().positive().default(15),
@@ -73,6 +78,11 @@ export type BackendEnv = {
   webhookSecret: string | undefined;
   webhookIpAllowlist: string[];
   webhookSignatureTtlSeconds: number;
+  webhookRetryIntervalMs: number;
+  webhookRetryBatchLimit: number;
+  webhookRetryMaxAttempts: number;
+  webhookRetryBaseDelayMs: number;
+  webhookRetryMaxDelayMs: number;
   ensReconciliationIntervalMs: number;
   ensReconciliationLimit: number;
   ensReconciliationStaleMinutes: number;
@@ -93,6 +103,11 @@ export const backendEnv: BackendEnv = {
   webhookSecret: parsed.data.WEBHOOK_SECRET,
   webhookIpAllowlist: parseCsv(parsed.data.WEBHOOK_IP_ALLOWLIST),
   webhookSignatureTtlSeconds: parsed.data.WEBHOOK_SIGNATURE_TTL_SECONDS,
+  webhookRetryIntervalMs: parsed.data.WEBHOOK_RETRY_INTERVAL_MS,
+  webhookRetryBatchLimit: parsed.data.WEBHOOK_RETRY_BATCH_LIMIT,
+  webhookRetryMaxAttempts: parsed.data.WEBHOOK_RETRY_MAX_ATTEMPTS,
+  webhookRetryBaseDelayMs: parsed.data.WEBHOOK_RETRY_BASE_DELAY_MS,
+  webhookRetryMaxDelayMs: parsed.data.WEBHOOK_RETRY_MAX_DELAY_MS,
   ensReconciliationIntervalMs: parsed.data.ENS_RECONCILIATION_INTERVAL_MS,
   ensReconciliationLimit: parsed.data.ENS_RECONCILIATION_LIMIT,
   ensReconciliationStaleMinutes: parsed.data.ENS_RECONCILIATION_STALE_MINUTES,
