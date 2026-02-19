@@ -3,6 +3,7 @@
 Open source forum + social networking platform for developers, with Better Auth, SIWE, ENS (private chain), and modular monorepo architecture.
 
 ## Workspace
+- `backend`: Fastify API scaffold.
 - `packages/db`: Drizzle schema, migration, and db client.
 - `packages/auth`: Better Auth config + SIWE/ENS helpers.
 - `infra`: local infrastructure (Postgres, Redis, Meilisearch, NocoDB, Mailpit).
@@ -16,6 +17,8 @@ Open source forum + social networking platform for developers, with Better Auth,
 3. Export `DATABASE_URL` and auth env vars (see `packages/auth/.env.example`).
 4. Run migrations:
    - `pnpm db:migrate`
+5. Start backend:
+   - `pnpm backend:dev`
 
 ## Notes
 - Initial migration is provided in `packages/db/drizzle`.

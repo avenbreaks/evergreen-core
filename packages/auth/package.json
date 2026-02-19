@@ -13,6 +13,8 @@
     "siwe": "^3.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.18.6",
+    "@types/nodemailer": "^6.4.17",
     "typescript": "^5.9.3"
   }
 }
