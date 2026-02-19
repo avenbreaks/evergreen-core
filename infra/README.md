@@ -12,6 +12,7 @@ Infrastructure stack for local Evergreen Devparty development.
 ## Mailpit Runtime Env
 - `MAILPIT_MAX_MESSAGES` (default `1000`)
 - `MAILPIT_SMTP_AUTH_ACCEPT_ANY` (default `true`)
+- `MAILPIT_SMTP_AUTH_ALLOW_INSECURE` (default `true`, only untuk localhost)
 - `MAILPIT_SEND_API_AUTH_ACCEPT_ANY` (default `true`)
 
 Untuk aplikasi lokal, gunakan SMTP:
