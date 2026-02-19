@@ -1,4 +1,6 @@
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { ZodError } from "zod";
 
@@ -7,14 +9,21 @@ import { HttpError } from "./lib/http-error";
 import { authBridgeRoutes } from "./routes/auth-bridge";
 import { ensRoutes } from "./routes/ens";
 import { healthRoutes } from "./routes/health";
+import { meRoutes } from "./routes/me";
 import { networkRoutes } from "./routes/network";
 import { siweRoutes } from "./routes/siwe";
 
 export const buildApp = () => {
   const app = Fastify({
+    trustProxy: backendEnv.trustProxy,
+    bodyLimit: backendEnv.bodyLimitBytes,
     logger: {
       level: backendEnv.logLevel,
     },
+  });
+
+  app.register(helmet, {
+    global: true,
   });
 
   app.register(cors, {
@@ -22,10 +31,16 @@ export const buildApp = () => {
     credentials: true,
   });
 
+  app.register(rateLimit, {
+    max: backendEnv.rateLimitMax,
+    timeWindow: backendEnv.rateLimitWindowMs,
+  });
+
   app.register(healthRoutes);
   app.register(networkRoutes);
   app.register(authBridgeRoutes);
   app.register(siweRoutes);
+  app.register(meRoutes);
   app.register(ensRoutes);
 
   app.setErrorHandler((error, request, reply) => {

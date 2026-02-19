@@ -1,25 +1,41 @@
 # Backend (Fastify)
 
-Backend API scaffold untuk Evergreen Devparty.
+Backend API untuk Evergreen Devparty dengan fokus:
+- Better Auth bridge + session-aware protected routes
+- SIWE wallet verification/linking
+- ENS marketplace flow (check -> commitment -> register -> records)
 
-## Fitur scaffold
-- Fastify server dengan CORS dan request logging.
-- Bridge route Better Auth: `/api/auth/*`.
-- SIWE routes: `/api/siwe/challenge`, `/api/siwe/verify`.
-- ENS claim route: `/api/ens/claim`.
-- Network metadata route: `/api/network`.
-- Health/ready probes: `/healthz`, `/readyz`.
+## Endpoint utama
+- Health: `GET /healthz`, `GET /readyz`
+- Auth bridge: `ALL /api/auth/*`
+- Session profile: `GET /api/me`
+- Wallet: `GET /api/me/wallets`, `POST /api/me/wallets/link`
+- Network metadata: `GET /api/network`
+- SIWE: `POST /api/siwe/challenge`, `POST /api/siwe/verify`
+- ENS public: `GET /api/ens/tlds`, `POST /api/ens/check`
+- ENS protected:
+  - `GET /api/ens/domains`
+  - `GET /api/ens/intents`
+  - `POST /api/ens/commitments`
+  - `POST /api/ens/commitments/:intentId/confirm`
+  - `POST /api/ens/registrations/:intentId/prepare`
+  - `POST /api/ens/registrations/:intentId/confirm`
+  - `POST /api/ens/records/address/prepare`
+  - `POST /api/ens/renew/prepare`
 
 ## Setup cepat
 1. Copy env:
    - `cp backend/.env.example backend/.env`
-2. Install deps workspace (root):
-   - `pnpm install`
-3. Jalankan backend (root):
+2. Pastikan infra + DB sudah up dan migrasi sudah jalan.
+3. Jalankan backend dari root:
    - `pnpm backend:dev`
 
-## Catatan auth user context
-Untuk endpoint `POST /api/siwe/verify` (link wallet) dan `POST /api/ens/claim`, scaffold ini memakai header:
-- `x-user-id: <user-id>`
+## Auth model
+- Protected routes membaca session dari Better Auth cookie.
+- Tidak ada lagi `x-user-id` bootstrap header.
+- Frontend harus kirim cookie auth (`credentials: include`).
 
-Header ini sementara untuk bootstrap backend. Saat auth middleware session sudah siap, ganti dengan user context dari Better Auth session.
+## ENS tx model
+- Backend menyiapkan payload tx (`to`, `functionName`, `args`, `value`).
+- Frontend wallet mengeksekusi tx on-chain.
+- Backend menerima tx hash untuk verifikasi receipt dan sinkronisasi state DB.

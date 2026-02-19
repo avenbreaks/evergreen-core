@@ -25,5 +25,6 @@ Open source forum + social networking platform for developers, with Better Auth,
 - Better Auth model mapping is configured in `packages/auth/src/auth.ts`.
 - SIWE nonce + wallet link flow helpers live in `packages/auth/src/siwe.ts`.
 - Email setup is documented in `docs/email-delivery.md` (Mailpit localhost, Unosend production).
+- Backend/frontend API contract is documented in `docs/backend-frontend-integration.md`.
 - Blockchain target network: OorthNexus (`chainId 131`, `https://rpc-api.oorthnexus.xyz`).
 - ENS production contract references live in `deployment-custom.md`.

@@ -9,10 +9,10 @@ import {
   verifySiweChallenge,
 } from "@evergreen-devparty/auth";
 
-import { getOptionalUserId } from "../lib/request-context";
+import { getAuthSession } from "../lib/auth-session";
 
 const challengeBodySchema = z.object({
-  walletAddress: z.string().min(42).max(42),
+  walletAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   chainId: z.number().int().positive().optional(),
   statement: z.string().min(1).max(280).optional(),
 });
@@ -48,11 +48,12 @@ export const siweRoutes: FastifyPluginAsync = async (app) => {
       signature: body.signature,
     });
 
-    const userId = getOptionalUserId(request);
-    if (userId) {
+    const authSession = await getAuthSession(request);
+    const userId = authSession?.user.id;
+    if (authSession) {
       await linkSiweIdentity({
         db: authDb,
-        userId,
+        userId: authSession.user.id,
         address: verification.address,
         chainId: verification.chainId,
         setAsPrimary: body.setAsPrimary,
