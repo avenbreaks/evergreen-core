@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
-import { verifyWebhookSecretMiddleware } from "../middleware/webhook-auth";
+import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
 
 type ReconciliationRouteDependencies = {
   reconcileStalePurchaseIntents: (input: {
@@ -69,7 +69,7 @@ export const reconciliationRoutes: FastifyPluginAsync<ReconciliationRoutesOption
   app.post(
     "/api/internal/ens/reconcile",
     {
-      preHandler: verifyWebhookSecretMiddleware,
+      preHandler: verifyInternalOpsSecretMiddleware,
     },
     async (request) => {
       const reconcileRunId = randomUUID();

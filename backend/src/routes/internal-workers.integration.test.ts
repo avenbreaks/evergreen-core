@@ -7,7 +7,7 @@ import { HttpError } from "../lib/http-error";
 
 const INTERNAL_SECRET = "test-internal-worker-secret";
 
-process.env.WEBHOOK_SECRET = INTERNAL_SECRET;
+process.env.INTERNAL_OPS_ACTIVE_SECRET = INTERNAL_SECRET;
 process.env.WEBHOOK_IP_ALLOWLIST = "";
 
 type ReconciliationInput = {
@@ -78,13 +78,13 @@ test("internal workers route rejects invalid secret", async (t) => {
     method: "POST",
     url: "/api/internal/workers/reconciliation/run",
     headers: {
-      "x-webhook-secret": "invalid-secret",
+      "x-internal-secret": "invalid-secret",
     },
     payload: {},
   });
 
   assert.equal(response.statusCode, 401);
-  assert.equal(response.json().code, "WEBHOOK_UNAUTHORIZED");
+  assert.equal(response.json().code, "INTERNAL_OPS_UNAUTHORIZED");
 });
 
 test("internal workers route triggers reconciliation with request input", async (t) => {
@@ -108,7 +108,7 @@ test("internal workers route triggers reconciliation with request input", async 
     method: "POST",
     url: "/api/internal/workers/reconciliation/run",
     headers: {
-      "x-webhook-secret": INTERNAL_SECRET,
+      "x-internal-secret": INTERNAL_SECRET,
     },
     payload: {
       limit: 12,
@@ -155,7 +155,7 @@ test("internal workers route triggers tx watcher and webhook retry", async (t) =
     method: "POST",
     url: "/api/internal/workers/tx-watcher/run",
     headers: {
-      "x-webhook-secret": INTERNAL_SECRET,
+      "x-internal-secret": INTERNAL_SECRET,
     },
     payload: {
       limit: 5,
@@ -166,7 +166,7 @@ test("internal workers route triggers tx watcher and webhook retry", async (t) =
     method: "POST",
     url: "/api/internal/workers/webhook-retry/run",
     headers: {
-      "x-webhook-secret": INTERNAL_SECRET,
+      "x-internal-secret": INTERNAL_SECRET,
     },
     payload: {
       limit: 5,
@@ -210,7 +210,7 @@ test("internal workers route returns worker status summary", async (t) => {
     method: "GET",
     url: "/api/internal/workers/status",
     headers: {
-      "x-webhook-secret": INTERNAL_SECRET,
+      "x-internal-secret": INTERNAL_SECRET,
     },
   });
 

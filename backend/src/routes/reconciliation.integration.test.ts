@@ -5,9 +5,9 @@ import Fastify from "fastify";
 
 import { HttpError } from "../lib/http-error";
 
-const WEBHOOK_SECRET = "test-webhook-secret";
+const INTERNAL_SECRET = "test-internal-secret";
 
-process.env.WEBHOOK_SECRET = WEBHOOK_SECRET;
+process.env.INTERNAL_OPS_ACTIVE_SECRET = INTERNAL_SECRET;
 process.env.WEBHOOK_IP_ALLOWLIST = "";
 
 type ReconcileInput = {
@@ -87,13 +87,13 @@ test("reconciliation route rejects invalid webhook secret", async (t) => {
     method: "POST",
     url: "/api/internal/ens/reconcile",
     headers: {
-      "x-webhook-secret": "invalid-secret",
+      "x-internal-secret": "invalid-secret",
     },
     payload: {},
   });
 
   assert.equal(response.statusCode, 401);
-  assert.equal(response.json().code, "WEBHOOK_UNAUTHORIZED");
+  assert.equal(response.json().code, "INTERNAL_OPS_UNAUTHORIZED");
 });
 
 test("reconciliation route forwards dry-run parameters", async (t) => {
@@ -127,7 +127,7 @@ test("reconciliation route forwards dry-run parameters", async (t) => {
     method: "POST",
     url: "/api/internal/ens/reconcile",
     headers: {
-      "x-webhook-secret": WEBHOOK_SECRET,
+      "x-internal-secret": INTERNAL_SECRET,
     },
     payload: {
       limit: 12,
@@ -182,7 +182,7 @@ test("reconciliation route returns committed to registerable transition", async 
     method: "POST",
     url: "/api/internal/ens/reconcile",
     headers: {
-      "x-webhook-secret": WEBHOOK_SECRET,
+      "x-internal-secret": INTERNAL_SECRET,
     },
     payload: {},
   });
@@ -227,7 +227,7 @@ test("reconciliation route returns expired transition", async (t) => {
     method: "POST",
     url: "/api/internal/ens/reconcile",
     headers: {
-      "x-webhook-secret": WEBHOOK_SECRET,
+      "x-internal-secret": INTERNAL_SECRET,
     },
     payload: {},
   });

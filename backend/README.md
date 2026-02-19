@@ -23,9 +23,9 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/ens/records/address/prepare`
   - `POST /api/ens/renew/prepare`
 - ENS internal maintenance:
-  - `POST /api/internal/ens/intents/:intentId/retry` (auth via `x-webhook-secret`)
-  - `POST /api/internal/ens/intents/:intentId/expire` (auth via `x-webhook-secret`)
-  - `POST /api/internal/ens/reconcile` (auth via `x-webhook-secret`)
+  - `POST /api/internal/ens/intents/:intentId/retry` (auth via `x-internal-secret`)
+  - `POST /api/internal/ens/intents/:intentId/expire` (auth via `x-internal-secret`)
+  - `POST /api/internal/ens/reconcile` (auth via `x-internal-secret`)
 
 ## Setup cepat
 1. Copy env:
@@ -49,7 +49,8 @@ Backend API untuk Evergreen Devparty dengan fokus:
 - Auth wajib:
   - `x-webhook-timestamp` (unix seconds)
   - `x-webhook-signature` dengan format `sha256=<hex>`
-  - signature dihitung dari `${timestamp}.${JSON.stringify(payload)}` memakai secret `WEBHOOK_SECRET`
+  - signature dihitung dari `${timestamp}.${JSON.stringify(payload)}` memakai secret aktif webhook
+  - secret rotation didukung via `WEBHOOK_ACTIVE_SECRET` + `WEBHOOK_NEXT_SECRET`
   - opsional allowlist IP via `WEBHOOK_IP_ALLOWLIST`
 - Anti replay window dikontrol oleh `WEBHOOK_SIGNATURE_TTL_SECONDS` (default `300`).
 - Event yang diterima:
@@ -87,7 +88,7 @@ Backend API untuk Evergreen Devparty dengan fokus:
 
 ## ENS reconciliation contract
 - Endpoint: `POST /api/internal/ens/reconcile`
-- Auth wajib: header `x-webhook-secret`
+- Auth wajib: header `x-internal-secret`
 - Request body (opsional):
 
 ```json

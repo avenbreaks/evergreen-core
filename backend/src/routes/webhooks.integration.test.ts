@@ -11,7 +11,7 @@ const INTENT_ID = "11111111-1111-4111-8111-111111111111";
 const TX_HASH_ONE = `0x${"1".repeat(64)}`;
 const TX_HASH_TWO = `0x${"2".repeat(64)}`;
 
-process.env.WEBHOOK_SECRET = WEBHOOK_SECRET;
+process.env.WEBHOOK_ACTIVE_SECRET = WEBHOOK_SECRET;
 process.env.WEBHOOK_IP_ALLOWLIST = "";
 process.env.WEBHOOK_SIGNATURE_TTL_SECONDS = "300";
 

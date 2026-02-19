@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
-import { verifyWebhookSecretMiddleware } from "../middleware/webhook-auth";
+import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
 
 type InternalWorkersRouteDependencies = {
   runEnsReconciliationOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number; dryRun?: boolean }) => Promise<unknown>;
@@ -66,7 +66,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.post(
     "/api/internal/workers/reconciliation/run",
     {
-      preHandler: verifyWebhookSecretMiddleware,
+      preHandler: verifyInternalOpsSecretMiddleware,
     },
     async (request) => {
       const body = runReconciliationBodySchema.parse(request.body ?? {});
@@ -87,7 +87,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.post(
     "/api/internal/workers/tx-watcher/run",
     {
-      preHandler: verifyWebhookSecretMiddleware,
+      preHandler: verifyInternalOpsSecretMiddleware,
     },
     async (request) => {
       const body = runLimitBodySchema.parse(request.body ?? {});
@@ -106,7 +106,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.post(
     "/api/internal/workers/webhook-retry/run",
     {
-      preHandler: verifyWebhookSecretMiddleware,
+      preHandler: verifyInternalOpsSecretMiddleware,
     },
     async (request) => {
       const body = runLimitBodySchema.parse(request.body ?? {});
@@ -125,7 +125,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.get(
     "/api/internal/workers/status",
     {
-      preHandler: verifyWebhookSecretMiddleware,
+      preHandler: verifyInternalOpsSecretMiddleware,
     },
     async () => {
       const status = await deps.getInternalWorkerStatusSummary();

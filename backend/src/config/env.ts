@@ -28,6 +28,14 @@ const parseCsv = (value: string | undefined): string[] => {
     .filter(Boolean);
 };
 
+const uniqueSecrets = (values: Array<string | undefined>): string[] => {
+  const normalized = values
+    .map((entry) => entry?.trim())
+    .filter((entry): entry is string => Boolean(entry));
+
+  return [...new Set(normalized)];
+};
+
 const envSchema = z.object({
   HOST: z.string().min(1).default("0.0.0.0"),
   PORT: z.coerce.number().int().positive().default(3001),
@@ -39,7 +47,12 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   DEBOUNCE_WINDOW_MS: z.coerce.number().int().positive().default(1500),
   BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1048576),
+  WEBHOOK_ACTIVE_SECRET: z.string().optional(),
+  WEBHOOK_NEXT_SECRET: z.string().optional(),
   WEBHOOK_SECRET: z.string().optional(),
+  INTERNAL_OPS_ACTIVE_SECRET: z.string().optional(),
+  INTERNAL_OPS_NEXT_SECRET: z.string().optional(),
+  INTERNAL_OPS_SECRET: z.string().optional(),
   WEBHOOK_IP_ALLOWLIST: z.string().optional(),
   WEBHOOK_SIGNATURE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   WEBHOOK_RETRY_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
@@ -66,6 +79,18 @@ const origins = parsed.data.CORS_ORIGINS.split(",")
   .map((entry) => entry.trim())
   .filter(Boolean);
 
+const webhookSecrets = uniqueSecrets([
+  parsed.data.WEBHOOK_ACTIVE_SECRET,
+  parsed.data.WEBHOOK_NEXT_SECRET,
+  parsed.data.WEBHOOK_SECRET,
+]);
+
+const internalOpsSecrets = uniqueSecrets([
+  parsed.data.INTERNAL_OPS_ACTIVE_SECRET,
+  parsed.data.INTERNAL_OPS_NEXT_SECRET,
+  parsed.data.INTERNAL_OPS_SECRET,
+]);
+
 export type BackendEnv = {
   host: string;
   port: number;
@@ -75,7 +100,8 @@ export type BackendEnv = {
   rateLimitWindowMs: number;
   debounceWindowMs: number;
   bodyLimitBytes: number;
-  webhookSecret: string | undefined;
+  webhookSecrets: string[];
+  internalOpsSecrets: string[];
   webhookIpAllowlist: string[];
   webhookSignatureTtlSeconds: number;
   webhookRetryIntervalMs: number;
@@ -100,7 +126,8 @@ export const backendEnv: BackendEnv = {
   rateLimitWindowMs: parsed.data.RATE_LIMIT_WINDOW_MS,
   debounceWindowMs: parsed.data.DEBOUNCE_WINDOW_MS,
   bodyLimitBytes: parsed.data.BODY_LIMIT_BYTES,
-  webhookSecret: parsed.data.WEBHOOK_SECRET,
+  webhookSecrets,
+  internalOpsSecrets,
   webhookIpAllowlist: parseCsv(parsed.data.WEBHOOK_IP_ALLOWLIST),
   webhookSignatureTtlSeconds: parsed.data.WEBHOOK_SIGNATURE_TTL_SECONDS,
   webhookRetryIntervalMs: parsed.data.WEBHOOK_RETRY_INTERVAL_MS,

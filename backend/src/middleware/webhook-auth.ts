@@ -22,14 +22,28 @@ const isIpAllowed = (ip: string): boolean => {
 };
 
 const assertWebhookEnabledAndIpAllowed = (request: { ip: string }): void => {
-  if (!backendEnv.webhookSecret) {
-    throw new HttpError(503, "WEBHOOK_DISABLED", "Webhook endpoint disabled: WEBHOOK_SECRET is not configured");
+  if (backendEnv.webhookSecrets.length === 0) {
+    throw new HttpError(
+      503,
+      "WEBHOOK_DISABLED",
+      "Webhook endpoint disabled: webhook active secret is not configured"
+    );
   }
 
   if (!isIpAllowed(request.ip)) {
     throw new HttpError(403, "WEBHOOK_IP_NOT_ALLOWED", "Webhook caller IP is not allowlisted", {
       ip: request.ip,
     });
+  }
+};
+
+const assertInternalOpsEnabled = (): void => {
+  if (backendEnv.internalOpsSecrets.length === 0) {
+    throw new HttpError(
+      503,
+      "INTERNAL_OPS_DISABLED",
+      "Internal operations endpoint disabled: internal ops secret is not configured"
+    );
   }
 };
 
@@ -60,30 +74,41 @@ const verifyHexSignature = (expectedHex: string, receivedHex: string): boolean =
   return timingSafeEqual(expectedBuffer, receivedBuffer);
 };
 
-export const verifyWebhookSecretMiddleware: preHandlerHookHandler = async (request) => {
-  assertWebhookEnabledAndIpAllowed(request);
-  const secret = backendEnv.webhookSecret as string;
-
-  const candidate = toStringHeader(request.headers["x-webhook-secret"]);
-  if (!candidate) {
-    throw new HttpError(401, "WEBHOOK_UNAUTHORIZED", "Missing x-webhook-secret header");
-  }
-
-  const expectedBuffer = Buffer.from(secret);
+const matchesAnySecret = (candidate: string, secrets: string[]): boolean => {
   const receivedBuffer = Buffer.from(candidate);
 
-  if (expectedBuffer.length !== receivedBuffer.length) {
-    throw new HttpError(401, "WEBHOOK_UNAUTHORIZED", "Invalid webhook secret");
+  for (const secret of secrets) {
+    const expectedBuffer = Buffer.from(secret);
+    if (expectedBuffer.length !== receivedBuffer.length) {
+      continue;
+    }
+
+    if (timingSafeEqual(expectedBuffer, receivedBuffer)) {
+      return true;
+    }
   }
 
-  if (!timingSafeEqual(expectedBuffer, receivedBuffer)) {
-    throw new HttpError(401, "WEBHOOK_UNAUTHORIZED", "Invalid webhook secret");
+  return false;
+};
+
+export const verifyInternalOpsSecretMiddleware: preHandlerHookHandler = async (request) => {
+  assertInternalOpsEnabled();
+
+  const candidate = toStringHeader(request.headers["x-internal-secret"]) ??
+    toStringHeader(request.headers["x-webhook-secret"]);
+  if (!candidate) {
+    throw new HttpError(401, "INTERNAL_OPS_UNAUTHORIZED", "Missing x-internal-secret header");
+  }
+
+  if (!matchesAnySecret(candidate, backendEnv.internalOpsSecrets)) {
+    throw new HttpError(401, "INTERNAL_OPS_UNAUTHORIZED", "Invalid internal operations secret");
   }
 };
 
+export const verifyWebhookSecretMiddleware = verifyInternalOpsSecretMiddleware;
+
 export const verifyWebhookSignatureMiddleware: preHandlerHookHandler = async (request) => {
   assertWebhookEnabledAndIpAllowed(request);
-  const secret = backendEnv.webhookSecret as string;
 
   const signatureHeader = normalizeSignature(toStringHeader(request.headers["x-webhook-signature"]));
   if (!signatureHeader) {
@@ -110,9 +135,12 @@ export const verifyWebhookSignatureMiddleware: preHandlerHookHandler = async (re
   }
 
   const payload = `${timestamp}.${JSON.stringify(request.body ?? {})}`;
-  const expectedSignature = createHmac("sha256", secret).update(payload).digest("hex");
+  const matches = backendEnv.webhookSecrets.some((secret) => {
+    const expectedSignature = createHmac("sha256", secret).update(payload).digest("hex");
+    return verifyHexSignature(expectedSignature, signatureHeader);
+  });
 
-  if (!verifyHexSignature(expectedSignature, signatureHeader)) {
+  if (!matches) {
     throw new HttpError(401, "WEBHOOK_UNAUTHORIZED", "Invalid webhook signature");
   }
 };

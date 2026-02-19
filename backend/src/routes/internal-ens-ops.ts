@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
-import { verifyWebhookSecretMiddleware } from "../middleware/webhook-auth";
+import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
 import { expirePurchaseIntentById, retryPurchaseIntentById } from "../services/ens-marketplace";
 
 const intentParamsSchema = z.object({
@@ -16,7 +16,7 @@ export const internalEnsOpsRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/internal/ens/intents/:intentId/retry",
     {
-      preHandler: verifyWebhookSecretMiddleware,
+      preHandler: verifyInternalOpsSecretMiddleware,
     },
     async (request) => {
       const params = intentParamsSchema.parse(request.params);
@@ -38,7 +38,7 @@ export const internalEnsOpsRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/internal/ens/intents/:intentId/expire",
     {
-      preHandler: verifyWebhookSecretMiddleware,
+      preHandler: verifyInternalOpsSecretMiddleware,
     },
     async (request) => {
       const params = intentParamsSchema.parse(request.params);
