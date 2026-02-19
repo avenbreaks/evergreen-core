@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { FastifyInstance } from "fastify";
 
 import { backendEnv } from "../config/env";
@@ -13,13 +15,19 @@ export const registerEnsReconciliationJob = (app: FastifyInstance): void => {
   }
 
   const runReconciliation = async () => {
+    const reconcileRunId = randomUUID();
     const lockAcquired = await tryAcquireEnsReconciliationLock();
     if (!lockAcquired) {
-      app.log.info("ENS reconciliation run skipped: advisory lock held by another instance");
+      app.log.info(
+        { reconcileRunId },
+        "ENS reconciliation run skipped: advisory lock held by another instance"
+      );
       return;
     }
 
     try {
+      app.log.info({ reconcileRunId }, "ENS reconciliation run started");
+
       const result = await reconcileStalePurchaseIntents({
         limit: backendEnv.ensReconciliationLimit,
         staleMinutes: backendEnv.ensReconciliationStaleMinutes,
@@ -27,6 +35,7 @@ export const registerEnsReconciliationJob = (app: FastifyInstance): void => {
 
       app.log.info(
         {
+          reconcileRunId,
           scanned: result.scanned,
           updated: result.updated,
           expired: result.expired,
@@ -39,7 +48,13 @@ export const registerEnsReconciliationJob = (app: FastifyInstance): void => {
       try {
         await releaseEnsReconciliationLock();
       } catch (error) {
-        app.log.error({ err: error }, "Failed to release ENS reconciliation advisory lock");
+        app.log.error(
+          {
+            err: error,
+            reconcileRunId,
+          },
+          "Failed to release ENS reconciliation advisory lock"
+        );
       }
     }
   };

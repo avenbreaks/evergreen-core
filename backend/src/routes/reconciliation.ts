@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
@@ -70,15 +72,39 @@ export const reconciliationRoutes: FastifyPluginAsync<ReconciliationRoutesOption
       preHandler: verifyWebhookSecretMiddleware,
     },
     async (request) => {
+      const reconcileRunId = randomUUID();
       const body = reconcileBodySchema.parse(request.body ?? {});
+      request.log.info(
+        {
+          reconcileRunId,
+          limit: body.limit ?? null,
+          staleMinutes: body.staleMinutes ?? null,
+          dryRun: Boolean(body.dryRun),
+        },
+        "ENS reconciliation request started"
+      );
+
       const result = await deps.reconcileStalePurchaseIntents({
         limit: body.limit,
         staleMinutes: body.staleMinutes,
         dryRun: body.dryRun,
       });
 
+      request.log.info(
+        {
+          reconcileRunId,
+          scanned: result.scanned,
+          updated: result.updated,
+          expired: result.expired,
+          promotedToRegisterable: result.promotedToRegisterable,
+          unchanged: result.unchanged,
+        },
+        "ENS reconciliation request completed"
+      );
+
       return {
         acknowledged: true,
+        reconcileRunId,
         ...result,
       };
     }

@@ -89,6 +89,13 @@ const buildWebhookDedupeKey = (payload: WebhookPayload): string => {
   return `${payload.event}:${payload.data.intentId}:${txHash}:${hashDebouncePayload(payload)}`;
 };
 
+const buildWebhookLogContext = (payload: WebhookPayload, webhookEventId?: string) => ({
+  eventType: payload.event,
+  intentId: payload.data.intentId,
+  txHash: getPayloadTxHash(payload) ?? null,
+  webhookEventId,
+});
+
 const resolveErrorDetails = (error: unknown): { code: string; message: string } => {
   if (error instanceof HttpError) {
     return {
@@ -184,25 +191,32 @@ export const webhookRoutes: FastifyPluginAsync<WebhookRoutesOptions> = async (ap
         txHash: getPayloadTxHash(payload),
         payload,
       });
+      const logContext = buildWebhookLogContext(payload, reservation.event.id);
 
       if (reservation.state === "duplicate_processed") {
-        return {
+        const response = {
           acknowledged: true,
           deduplicated: true,
           event: payload.event,
           intentId: payload.data.intentId,
           outcome: reservation.event.result ?? null,
         };
+
+        request.log.info(logContext, "ENS webhook deduplicated using processed event record");
+        return response;
       }
 
       if (reservation.state === "duplicate_processing") {
-        return {
+        const response = {
           acknowledged: true,
           deduplicated: true,
           event: payload.event,
           intentId: payload.data.intentId,
           processing: true,
         };
+
+        request.log.info(logContext, "ENS webhook deduplicated while existing event is processing");
+        return response;
       }
 
       try {
@@ -223,6 +237,7 @@ export const webhookRoutes: FastifyPluginAsync<WebhookRoutesOptions> = async (ap
             result: response,
           });
 
+          request.log.info(logContext, "ENS webhook processed successfully");
           return response;
         }
 
@@ -245,6 +260,7 @@ export const webhookRoutes: FastifyPluginAsync<WebhookRoutesOptions> = async (ap
             result: response,
           });
 
+          request.log.info(logContext, "ENS webhook processed successfully");
           return response;
         }
 
@@ -265,9 +281,18 @@ export const webhookRoutes: FastifyPluginAsync<WebhookRoutesOptions> = async (ap
           result: response,
         });
 
+        request.log.info(logContext, "ENS webhook processed successfully");
         return response;
       } catch (error) {
         const details = resolveErrorDetails(error);
+        request.log.error(
+          {
+            err: error,
+            ...logContext,
+            errorCode: details.code,
+          },
+          "ENS webhook processing failed"
+        );
 
         try {
           await deps.markWebhookEventFailed({
