@@ -7,6 +7,11 @@ type InternalWorkersRouteDependencies = {
   runEnsReconciliationOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number; dryRun?: boolean }) => Promise<unknown>;
   runEnsTxWatcherOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
   runEnsWebhookRetryOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
+  runOpsRetentionOnce: (app: unknown, input?: {
+    batchLimit?: number;
+    processedRetentionDays?: number;
+    deadLetterRetentionDays?: number;
+  }) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
 };
 
@@ -24,6 +29,12 @@ const runLimitBodySchema = z.object({
   limit: z.coerce.number().int().positive().max(500).optional(),
 });
 
+const runOpsRetentionBodySchema = z.object({
+  batchLimit: z.coerce.number().int().positive().max(5000).optional(),
+  processedRetentionDays: z.coerce.number().int().positive().max(365).optional(),
+  deadLetterRetentionDays: z.coerce.number().int().positive().max(365).optional(),
+});
+
 const hasCompleteDependencies = (
   deps: Partial<InternalWorkersRouteDependencies> | undefined
 ): deps is InternalWorkersRouteDependencies => {
@@ -35,15 +46,17 @@ const hasCompleteDependencies = (
     typeof deps.runEnsReconciliationOnce === "function" &&
     typeof deps.runEnsTxWatcherOnce === "function" &&
     typeof deps.runEnsWebhookRetryOnce === "function" &&
+    typeof deps.runOpsRetentionOnce === "function" &&
     typeof deps.getInternalWorkerStatusSummary === "function"
   );
 };
 
 const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependencies> => {
-  const [reconciliationJob, txWatcherJob, webhookRetryJob, workerStatusService] = await Promise.all([
+  const [reconciliationJob, txWatcherJob, webhookRetryJob, opsRetentionJob, workerStatusService] = await Promise.all([
     import("../jobs/ens-reconciliation"),
     import("../jobs/ens-tx-watcher"),
     import("../jobs/ens-webhook-retry"),
+    import("../jobs/ops-retention"),
     import("../services/internal-worker-status"),
   ]);
 
@@ -51,6 +64,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     runEnsReconciliationOnce: reconciliationJob.runEnsReconciliationOnce as InternalWorkersRouteDependencies["runEnsReconciliationOnce"],
     runEnsTxWatcherOnce: txWatcherJob.runEnsTxWatcherOnce as InternalWorkersRouteDependencies["runEnsTxWatcherOnce"],
     runEnsWebhookRetryOnce: webhookRetryJob.runEnsWebhookRetryOnce as InternalWorkersRouteDependencies["runEnsWebhookRetryOnce"],
+    runOpsRetentionOnce: opsRetentionJob.runOpsRetentionOnce as InternalWorkersRouteDependencies["runOpsRetentionOnce"],
     getInternalWorkerStatusSummary: workerStatusService.getInternalWorkerStatusSummary,
   };
 };
@@ -117,6 +131,27 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
       return {
         acknowledged: true,
         worker: "webhook-retry",
+        run,
+      };
+    }
+  );
+
+  app.post(
+    "/api/internal/workers/ops-retention/run",
+    {
+      preHandler: verifyInternalOpsSecretMiddleware,
+    },
+    async (request) => {
+      const body = runOpsRetentionBodySchema.parse(request.body ?? {});
+      const run = await deps.runOpsRetentionOnce(app, {
+        batchLimit: body.batchLimit,
+        processedRetentionDays: body.processedRetentionDays,
+        deadLetterRetentionDays: body.deadLetterRetentionDays,
+      });
+
+      return {
+        acknowledged: true,
+        worker: "ops-retention",
         run,
       };
     }

@@ -26,6 +26,11 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/internal/ens/intents/:intentId/retry` (auth via `x-internal-secret`)
   - `POST /api/internal/ens/intents/:intentId/expire` (auth via `x-internal-secret`)
   - `POST /api/internal/ens/reconcile` (auth via `x-internal-secret`)
+  - `POST /api/internal/workers/reconciliation/run` (auth via `x-internal-secret`)
+  - `POST /api/internal/workers/tx-watcher/run` (auth via `x-internal-secret`)
+  - `POST /api/internal/workers/webhook-retry/run` (auth via `x-internal-secret`)
+  - `POST /api/internal/workers/ops-retention/run` (auth via `x-internal-secret`)
+  - `GET /api/internal/workers/status` (auth via `x-internal-secret`)
 
 ## Setup cepat
 1. Copy env:
@@ -121,3 +126,11 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `ENS_TX_WATCHER_LIMIT`
 - Watcher memeriksa intent `prepared/committed/registerable` untuk fallback saat webhook telat/hilang.
 - Watcher juga memakai Postgres advisory lock agar tidak ada overlap run antar instance backend.
+
+## Ops retention cleanup
+- Optional background cleanup bisa diaktifkan via env:
+  - `OPS_RETENTION_INTERVAL_MS` (`0` untuk disable)
+  - `OPS_RETENTION_BATCH_LIMIT`
+  - `OPS_WEBHOOK_PROCESSED_RETENTION_DAYS`
+  - `OPS_WEBHOOK_DEAD_LETTER_RETENTION_DAYS`
+- Cleanup menghapus event webhook operasional lama (`processed` dan `dead_letter`) per batch.

@@ -8,6 +8,7 @@ import { backendEnv } from "./config/env";
 import { registerEnsReconciliationJob } from "./jobs/ens-reconciliation";
 import { registerEnsWebhookRetryJob } from "./jobs/ens-webhook-retry";
 import { registerEnsTxWatcherJob } from "./jobs/ens-tx-watcher";
+import { registerOpsRetentionJob } from "./jobs/ops-retention";
 import { HttpError } from "./lib/http-error";
 import { authBridgeRoutes } from "./routes/auth-bridge";
 import { ensRoutes } from "./routes/ens";
@@ -57,6 +58,7 @@ export const buildApp = () => {
   registerEnsReconciliationJob(app);
   registerEnsWebhookRetryJob(app);
   registerEnsTxWatcherJob(app);
+  registerOpsRetentionJob(app);
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, "Request failed");

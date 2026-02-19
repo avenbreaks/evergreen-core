@@ -6,6 +6,7 @@ const ENS_LOCK_NAMESPACE = 131;
 const ENS_RECONCILIATION_LOCK_RESOURCE = 20260220;
 const ENS_TX_WATCHER_LOCK_RESOURCE = 20260221;
 const ENS_WEBHOOK_RETRY_LOCK_RESOURCE = 20260222;
+const OPS_RETENTION_LOCK_RESOURCE = 20260223;
 
 type AdvisoryLockRow = {
   locked: boolean | null;
@@ -71,6 +72,15 @@ export const runWithEnsWebhookRetryLock = async <T>(task: () => Promise<T>): Pro
     {
       namespace: ENS_LOCK_NAMESPACE,
       resource: ENS_WEBHOOK_RETRY_LOCK_RESOURCE,
+    },
+    task
+  );
+
+export const runWithOpsRetentionLock = async <T>(task: () => Promise<T>): Promise<LockResult<T>> =>
+  runWithTransactionAdvisoryLock(
+    {
+      namespace: ENS_LOCK_NAMESPACE,
+      resource: OPS_RETENTION_LOCK_RESOURCE,
     },
     task
   );
