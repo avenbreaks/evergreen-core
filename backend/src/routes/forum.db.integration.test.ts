@@ -1,0 +1,358 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import test from "node:test";
+
+import Fastify from "fastify";
+import { eq, inArray, sql } from "drizzle-orm";
+
+import type { FastifyRequest } from "fastify";
+
+import { HttpError } from "../lib/http-error";
+import type { ForumRouteDependencies } from "./forum";
+
+const DEFAULT_DATABASE_URL = "postgresql://devparty:devparty@localhost:5436/devpartydb";
+
+const ensureIntegrationEnv = (): void => {
+  process.env.DATABASE_URL ??= DEFAULT_DATABASE_URL;
+  process.env.BETTER_AUTH_SECRET ??= "forum-db-integration-secret-0123456789abcdef";
+  process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
+  process.env.BETTER_AUTH_TRUSTED_ORIGINS ??= "http://localhost:3000,http://localhost:3001";
+};
+
+const canConnectToDatabase = async (): Promise<boolean> => {
+  ensureIntegrationEnv();
+
+  try {
+    const { authDb } = await import("@evergreen-devparty/auth");
+    await authDb.execute(sql`select 1`);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const getTestUserId = (request: FastifyRequest): string => {
+  const raw = request.headers["x-test-user-id"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (!value || typeof value !== "string") {
+    throw new HttpError(401, "UNAUTHORIZED", "Test auth user header is required");
+  }
+
+  return value;
+};
+
+const buildTestSession = (userId: string): Awaited<ReturnType<ForumRouteDependencies["requireAuthSession"]>> => ({
+  session: {
+    id: `session-${userId}`,
+    token: `token-${userId}`,
+    userId,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  },
+  user: {
+    id: userId,
+    email: `integration-${userId}@example.com`,
+    name: `Integration ${userId.slice(0, 8)}`,
+  },
+});
+
+const buildForumDbTestApp = async () => {
+  const { forumRoutes } = await import("./forum");
+
+  const app = Fastify({ logger: false });
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof HttpError) {
+      return reply.status(error.statusCode).send({
+        code: error.code,
+        message: error.message,
+        details: error.details,
+      });
+    }
+
+    return reply.status(500).send({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Unexpected error",
+    });
+  });
+
+  await app.register(forumRoutes, {
+    disableDebounce: true,
+    deps: {
+      requireAuthSession: async (request) => {
+        const userId = getTestUserId(request);
+        return buildTestSession(userId);
+      },
+      requireAuthSessionMiddleware: async (request) => {
+        getTestUserId(request);
+      },
+    },
+  });
+
+  return app;
+};
+
+const insertUser = async (input: { id: string; role?: "user" | "moderator" | "admin" }) => {
+  const [{ authDb }, { schema }] = await Promise.all([import("@evergreen-devparty/auth"), import("@evergreen-devparty/db")]);
+
+  await authDb.insert(schema.users).values({
+    id: input.id,
+    email: `integration-${input.id}@example.com`,
+    name: `Integration ${input.id.slice(0, 8)}`,
+    role: input.role ?? "user",
+  });
+};
+
+const cleanupUsersAndQueueTargets = async (input: { userIds: string[]; targetIds: string[] }) => {
+  const [{ authDb }, { schema }] = await Promise.all([import("@evergreen-devparty/auth"), import("@evergreen-devparty/db")]);
+
+  const userIds = [...new Set(input.userIds)];
+  const targetIds = [...new Set(input.targetIds)];
+
+  if (targetIds.length > 0) {
+    await authDb.delete(schema.forumSearchSyncQueue).where(inArray(schema.forumSearchSyncQueue.targetId, targetIds));
+  }
+
+  if (userIds.length > 0) {
+    await authDb.delete(schema.users).where(inArray(schema.users.id, userIds));
+  }
+};
+
+test("forum DB integration enforces auth on protected write route", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const app = await buildForumDbTestApp();
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    payload: {
+      title: "Unauthorized post",
+      markdown: "Should fail without auth header",
+    },
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.json().code, "UNAUTHORIZED");
+});
+
+test("forum DB integration happy-path for post comment reaction and report", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const authorId = randomUUID();
+  const commenterId = randomUUID();
+  const reporterId = randomUUID();
+
+  await insertUser({ id: authorId });
+  await insertUser({ id: commenterId });
+  await insertUser({ id: reporterId });
+
+  const app = await buildForumDbTestApp();
+
+  let postId: string | null = null;
+  let commentId: string | null = null;
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [authorId, commenterId, reporterId],
+      targetIds: [postId, commentId].filter((value): value is string => Boolean(value)),
+    });
+  });
+
+  const createPostResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": authorId,
+    },
+    payload: {
+      title: `Integration Post ${authorId.slice(0, 8)}`,
+      markdown: "hello integration forum",
+    },
+  });
+
+  assert.equal(createPostResponse.statusCode, 200);
+  postId = createPostResponse.json().post.id;
+
+  const createCommentResponse = await app.inject({
+    method: "POST",
+    url: `/api/forum/posts/${postId}/comments`,
+    headers: {
+      "x-test-user-id": commenterId,
+    },
+    payload: {
+      markdown: "comment from integration test",
+    },
+  });
+
+  assert.equal(createCommentResponse.statusCode, 200);
+  commentId = createCommentResponse.json().comment.id;
+
+  const reactionResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/reactions/toggle",
+    headers: {
+      "x-test-user-id": authorId,
+    },
+    payload: {
+      targetType: "comment",
+      targetId: commentId,
+      reactionType: "like",
+    },
+  });
+
+  assert.equal(reactionResponse.statusCode, 200);
+  assert.equal(reactionResponse.json().active, true);
+
+  const reportResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/reports",
+    headers: {
+      "x-test-user-id": reporterId,
+    },
+    payload: {
+      targetType: "comment",
+      targetId: commentId,
+      reason: "integration report",
+    },
+  });
+
+  assert.equal(reportResponse.statusCode, 200);
+  assert.equal(reportResponse.json().status, "open");
+});
+
+test("forum DB integration rejects forbidden pin by non-owner non-moderator", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const ownerId = randomUUID();
+  const strangerId = randomUUID();
+
+  await insertUser({ id: ownerId });
+  await insertUser({ id: strangerId });
+
+  const app = await buildForumDbTestApp();
+
+  let postId: string | null = null;
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [ownerId, strangerId],
+      targetIds: [postId].filter((value): value is string => Boolean(value)),
+    });
+  });
+
+  const createPostResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": ownerId,
+    },
+    payload: {
+      title: `Pin target ${ownerId.slice(0, 8)}`,
+      markdown: "owner content",
+    },
+  });
+
+  assert.equal(createPostResponse.statusCode, 200);
+  postId = createPostResponse.json().post.id;
+
+  const pinResponse = await app.inject({
+    method: "POST",
+    url: `/api/forum/posts/${postId}/pin`,
+    headers: {
+      "x-test-user-id": strangerId,
+    },
+    payload: {
+      pinned: true,
+    },
+  });
+
+  assert.equal(pinResponse.statusCode, 403);
+  assert.equal(pinResponse.json().code, "FORBIDDEN");
+});
+
+test("forum DB integration enforces max reply depth", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const userId = randomUUID();
+  await insertUser({ id: userId });
+
+  const app = await buildForumDbTestApp();
+
+  let postId: string | null = null;
+  const commentIds: string[] = [];
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [userId],
+      targetIds: [postId, ...commentIds].filter((value): value is string => Boolean(value)),
+    });
+  });
+
+  const createPostResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": userId,
+    },
+    payload: {
+      title: `Depth test ${userId.slice(0, 8)}`,
+      markdown: "depth base post",
+    },
+  });
+
+  assert.equal(createPostResponse.statusCode, 200);
+  postId = createPostResponse.json().post.id;
+
+  let parentId: string | undefined;
+  for (let index = 0; index < 4; index += 1) {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/forum/posts/${postId}/comments`,
+      headers: {
+        "x-test-user-id": userId,
+      },
+      payload: {
+        markdown: `depth level ${index}`,
+        parentId,
+      },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const createdId = response.json().comment.id as string;
+    commentIds.push(createdId);
+    parentId = createdId;
+  }
+
+  const overflowResponse = await app.inject({
+    method: "POST",
+    url: `/api/forum/posts/${postId}/comments`,
+    headers: {
+      "x-test-user-id": userId,
+    },
+    payload: {
+      markdown: "should exceed depth",
+      parentId,
+    },
+  });
+
+  assert.equal(overflowResponse.statusCode, 400);
+  assert.equal(overflowResponse.json().code, "MAX_REPLY_DEPTH_EXCEEDED");
+});
