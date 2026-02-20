@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, type QueryKey, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowBigUp, Bookmark, Loader2, MessageSquare, Share2, UserPlus } from "lucide-react";
 
 import { ViewerSummaryCard } from "@/components/auth/viewer-summary-card";
@@ -22,6 +22,7 @@ import {
   toggleForumFollow,
   toggleForumReaction,
 } from "@/lib/api-client";
+import type { ForumPostDetailPayload } from "@/lib/api-client";
 
 const truncateId = (value: string): string => `${value.slice(0, 6)}...${value.slice(-4)}`;
 
@@ -53,6 +54,37 @@ export default function ThreadDiscussionPage() {
   const [replyError, setReplyError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [likedPostOverride, setLikedPostOverride] = useState<boolean>(false);
+  const [bookmarkedPostOverride, setBookmarkedPostOverride] = useState<boolean>(false);
+  const [followingAuthorOverride, setFollowingAuthorOverride] = useState<boolean>(false);
+  const [likedCommentOverrides, setLikedCommentOverrides] = useState<Record<string, boolean>>({});
+
+  const mutateThreadCache = (updater: (payload: ForumPostDetailPayload) => ForumPostDetailPayload) => {
+    const snapshots = queryClient.getQueriesData<InfiniteData<ForumPostDetailPayload>>({
+      queryKey: ["forum-post-detail", postId],
+    });
+
+    snapshots.forEach(([key, snapshot]) => {
+      if (!snapshot) {
+        return;
+      }
+
+      queryClient.setQueryData<InfiniteData<ForumPostDetailPayload>>(key, {
+        ...snapshot,
+        pages: snapshot.pages.map((page) => updater(page)),
+      });
+    });
+
+    return snapshots;
+  };
+
+  const restoreThreadSnapshots = (
+    snapshots: Array<[QueryKey, InfiniteData<ForumPostDetailPayload> | undefined]> | undefined
+  ) => {
+    snapshots?.forEach(([key, snapshot]) => {
+      queryClient.setQueryData(key, snapshot);
+    });
+  };
 
   const meQuery = useQuery({
     queryKey: ["me"],
@@ -99,14 +131,46 @@ export default function ThreadDiscussionPage() {
         targetId: postId,
         reactionType: "like",
       }),
-    onSuccess: async () => {
+    onMutate: async () => {
+      setActionMessage(null);
+      setActionError(null);
+
+      const previousLiked = likedPostOverride;
+      const nextLiked = !previousLiked;
+      setLikedPostOverride(nextLiked);
+
+      const snapshots = mutateThreadCache((page) => ({
+        ...page,
+        post: {
+          ...page.post,
+          reactionCount: Math.max(0, page.post.reactionCount + (nextLiked ? 1 : -1)),
+        },
+      }));
+
+      return {
+        snapshots,
+        previousLiked,
+      };
+    },
+    onSuccess: (payload) => {
+      if (typeof payload?.active === "boolean") {
+        setLikedPostOverride(payload.active);
+      }
+
       setActionError(null);
       setActionMessage("Reaction updated.");
-      await invalidateThread();
     },
-    onError: (error) => {
+    onError: (error, _variables, context) => {
+      restoreThreadSnapshots(context?.snapshots);
+      if (context) {
+        setLikedPostOverride(context.previousLiked);
+      }
+
       setActionMessage(null);
       setActionError(error instanceof Error ? error.message : "Could not react to post");
+    },
+    onSettled: async () => {
+      await invalidateThread();
     },
   });
 
@@ -117,53 +181,168 @@ export default function ThreadDiscussionPage() {
         targetId: commentId,
         reactionType: "like",
       }),
-    onSuccess: async () => {
+    onMutate: async (commentId) => {
+      setActionMessage(null);
+      setActionError(null);
+
+      const previousLiked = likedCommentOverrides[commentId] ?? false;
+      const nextLiked = !previousLiked;
+      setLikedCommentOverrides((current) => ({
+        ...current,
+        [commentId]: nextLiked,
+      }));
+
+      const snapshots = mutateThreadCache((page) => ({
+        ...page,
+        comments: page.comments.map((comment) =>
+          comment.id === commentId
+            ? {
+                ...comment,
+                reactionCount: Math.max(0, comment.reactionCount + (nextLiked ? 1 : -1)),
+              }
+            : comment
+        ),
+      }));
+
+      return {
+        commentId,
+        snapshots,
+        previousLiked,
+      };
+    },
+    onSuccess: (payload, _commentId, context) => {
+      if (typeof payload?.active === "boolean" && context) {
+        setLikedCommentOverrides((current) => ({
+          ...current,
+          [context.commentId]: payload.active,
+        }));
+      }
+
       setActionError(null);
       setActionMessage("Comment reaction updated.");
-      await invalidateThread();
     },
-    onError: (error) => {
+    onError: (error, _commentId, context) => {
+      restoreThreadSnapshots(context?.snapshots);
+      if (context) {
+        setLikedCommentOverrides((current) => ({
+          ...current,
+          [context.commentId]: context.previousLiked,
+        }));
+      }
+
       setActionMessage(null);
       setActionError(error instanceof Error ? error.message : "Could not react to comment");
+    },
+    onSettled: async () => {
+      await invalidateThread();
     },
   });
 
   const shareMutation = useMutation({
     mutationFn: () => shareForumPost({ postId }),
-    onSuccess: async () => {
+    onMutate: async () => {
+      setActionMessage(null);
+      setActionError(null);
+
+      const snapshots = mutateThreadCache((page) => ({
+        ...page,
+        post: {
+          ...page.post,
+          shareCount: Math.max(0, page.post.shareCount + 1),
+        },
+      }));
+
+      return { snapshots };
+    },
+    onSuccess: () => {
       setActionError(null);
       setActionMessage("Post shared.");
-      await invalidateThread();
     },
-    onError: (error) => {
+    onError: (error, _variables, context) => {
+      restoreThreadSnapshots(context?.snapshots);
       setActionMessage(null);
       setActionError(error instanceof Error ? error.message : "Could not share post");
+    },
+    onSettled: async () => {
+      await invalidateThread();
     },
   });
 
   const bookmarkMutation = useMutation({
     mutationFn: () => toggleForumBookmark({ postId }),
-    onSuccess: async () => {
+    onMutate: async () => {
+      setActionMessage(null);
+      setActionError(null);
+
+      const previousBookmarked = bookmarkedPostOverride;
+      const nextBookmarked = !previousBookmarked;
+      setBookmarkedPostOverride(nextBookmarked);
+
+      const snapshots = mutateThreadCache((page) => ({
+        ...page,
+        post: {
+          ...page.post,
+          bookmarkCount: Math.max(0, page.post.bookmarkCount + (nextBookmarked ? 1 : -1)),
+        },
+      }));
+
+      return {
+        snapshots,
+        previousBookmarked,
+      };
+    },
+    onSuccess: (payload) => {
+      if (typeof payload?.bookmarked === "boolean") {
+        setBookmarkedPostOverride(payload.bookmarked);
+      }
+
       setActionError(null);
       setActionMessage("Bookmark updated.");
-      await invalidateThread();
     },
-    onError: (error) => {
+    onError: (error, _variables, context) => {
+      restoreThreadSnapshots(context?.snapshots);
+      if (context) {
+        setBookmarkedPostOverride(context.previousBookmarked);
+      }
+
       setActionMessage(null);
       setActionError(error instanceof Error ? error.message : "Could not toggle bookmark");
+    },
+    onSettled: async () => {
+      await invalidateThread();
     },
   });
 
   const followMutation = useMutation({
     mutationFn: (followeeUserId: string) => toggleForumFollow({ followeeUserId }),
-    onSuccess: async () => {
+    onMutate: async () => {
+      setActionMessage(null);
+      setActionError(null);
+
+      const previousFollowing = followingAuthorOverride;
+      const nextFollowing = !previousFollowing;
+      setFollowingAuthorOverride(nextFollowing);
+
+      return { previousFollowing };
+    },
+    onSuccess: (payload) => {
+      if (typeof payload?.following === "boolean") {
+        setFollowingAuthorOverride(payload.following);
+      }
+
       setActionError(null);
       setActionMessage("Follow updated.");
-      await invalidateThread();
     },
-    onError: (error) => {
+    onError: (error, _followeeUserId, context) => {
+      if (context) {
+        setFollowingAuthorOverride(context.previousFollowing);
+      }
+
       setActionMessage(null);
       setActionError(error instanceof Error ? error.message : "Could not follow author");
+    },
+    onSettled: async () => {
+      await invalidateThread();
     },
   });
 
@@ -267,7 +446,7 @@ export default function ThreadDiscussionPage() {
                     ) : (
                       <UserPlus className="size-3.5" />
                     )}
-                    Follow
+                    {followingAuthorOverride ? "Following" : "Follow"}
                   </Button>
                 ) : null}
               </div>
@@ -311,7 +490,11 @@ export default function ThreadDiscussionPage() {
                     onClick={() => postReactionMutation.mutate()}
                     disabled={postReactionMutation.isPending || !threadPost}
                   >
-                    {postReactionMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <ArrowBigUp className="size-4" />}
+                    {postReactionMutation.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <ArrowBigUp className={`size-4 ${likedPostOverride ? "text-primary" : ""}`} />
+                    )}
                     {threadPost?.reactionCount ?? 0}
                   </button>
                   <span className="inline-flex items-center gap-1">
@@ -325,7 +508,11 @@ export default function ThreadDiscussionPage() {
                     onClick={() => bookmarkMutation.mutate()}
                     disabled={bookmarkMutation.isPending || !threadPost}
                   >
-                    {bookmarkMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Bookmark className="size-4" />}
+                    {bookmarkMutation.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Bookmark className={`size-4 ${bookmarkedPostOverride ? "text-primary" : ""}`} />
+                    )}
                     {threadPost?.bookmarkCount ?? 0}
                   </button>
                   <button
@@ -399,7 +586,7 @@ export default function ThreadDiscussionPage() {
                     {commentReactionMutation.isPending && commentReactionMutation.variables === comment.id ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : (
-                      <ArrowBigUp className="size-4" />
+                      <ArrowBigUp className={`size-4 ${likedCommentOverrides[comment.id] ? "text-primary" : ""}`} />
                     )}
                     {comment.reactionCount}
                   </button>

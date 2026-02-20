@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, type QueryKey, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Loader2, MessageCircle, Plus, Search, Share2, ThumbsUp, UserPlus } from "lucide-react";
 
 import { ViewerSummaryCard } from "@/components/auth/viewer-summary-card";
@@ -23,6 +23,7 @@ import {
   toggleForumFollow,
   toggleForumReaction,
 } from "@/lib/api-client";
+import type { ForumFeedPayload, ForumPostSummary } from "@/lib/api-client";
 
 const truncateId = (value: string): string => `${value.slice(0, 6)}...${value.slice(-4)}`;
 
@@ -54,6 +55,39 @@ export default function FeedPage() {
   const [composerError, setComposerError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [likedOverrides, setLikedOverrides] = useState<Record<string, boolean>>({});
+  const [bookmarkedOverrides, setBookmarkedOverrides] = useState<Record<string, boolean>>({});
+  const [followingOverrides, setFollowingOverrides] = useState<Record<string, boolean>>({});
+
+  const mutateFeedCache = (updater: (post: ForumPostSummary) => ForumPostSummary) => {
+    const snapshots = queryClient.getQueriesData<InfiniteData<ForumFeedPayload>>({
+      queryKey: ["forum-feed"],
+    });
+
+    snapshots.forEach(([key, snapshot]) => {
+      if (!snapshot) {
+        return;
+      }
+
+      queryClient.setQueryData<InfiniteData<ForumFeedPayload>>(key, {
+        ...snapshot,
+        pages: snapshot.pages.map((page) => ({
+          ...page,
+          posts: page.posts.map((post) => updater(post)),
+        })),
+      });
+    });
+
+    return snapshots;
+  };
+
+  const restoreFeedSnapshots = (
+    snapshots: Array<[QueryKey, InfiniteData<ForumFeedPayload> | undefined]> | undefined
+  ) => {
+    snapshots?.forEach(([key, snapshot]) => {
+      queryClient.setQueryData(key, snapshot);
+    });
+  };
 
   const meQuery = useQuery({
     queryKey: ["me"],
@@ -95,53 +129,189 @@ export default function FeedPage() {
         targetId: postId,
         reactionType: "like",
       }),
-    onSuccess: async () => {
+    onMutate: async (postId) => {
+      setActionMessage(null);
+      setActionError(null);
+
+      const previousLiked = likedOverrides[postId] ?? false;
+      const nextLiked = !previousLiked;
+      setLikedOverrides((current) => ({
+        ...current,
+        [postId]: nextLiked,
+      }));
+
+      const snapshots = mutateFeedCache((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              reactionCount: Math.max(0, post.reactionCount + (nextLiked ? 1 : -1)),
+            }
+          : post
+      );
+
+      return {
+        snapshots,
+        postId,
+        previousLiked,
+      };
+    },
+    onSuccess: (payload, _postId, context) => {
+      if (typeof payload?.active === "boolean" && context) {
+        setLikedOverrides((current) => ({
+          ...current,
+          [context.postId]: payload.active,
+        }));
+      }
+
       setActionError(null);
       setActionMessage("Reaction updated.");
-      await queryClient.invalidateQueries({ queryKey: ["forum-feed"] });
     },
-    onError: (error) => {
+    onError: (error, _postId, context) => {
+      restoreFeedSnapshots(context?.snapshots);
+      if (context) {
+        setLikedOverrides((current) => ({
+          ...current,
+          [context.postId]: context.previousLiked,
+        }));
+      }
+
       setActionMessage(null);
       setActionError(error instanceof Error ? error.message : "Could not toggle reaction");
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["forum-feed"] });
     },
   });
 
   const shareMutation = useMutation({
     mutationFn: (postId: string) => shareForumPost({ postId }),
-    onSuccess: async () => {
+    onMutate: async (postId) => {
+      setActionMessage(null);
+      setActionError(null);
+
+      const snapshots = mutateFeedCache((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              shareCount: Math.max(0, post.shareCount + 1),
+            }
+          : post
+      );
+
+      return { snapshots };
+    },
+    onSuccess: () => {
       setActionError(null);
       setActionMessage("Post shared.");
-      await queryClient.invalidateQueries({ queryKey: ["forum-feed"] });
     },
-    onError: (error) => {
+    onError: (error, _postId, context) => {
+      restoreFeedSnapshots(context?.snapshots);
       setActionMessage(null);
       setActionError(error instanceof Error ? error.message : "Could not share post");
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["forum-feed"] });
     },
   });
 
   const bookmarkMutation = useMutation({
     mutationFn: (postId: string) => toggleForumBookmark({ postId }),
-    onSuccess: async () => {
+    onMutate: async (postId) => {
+      setActionMessage(null);
+      setActionError(null);
+
+      const previousBookmarked = bookmarkedOverrides[postId] ?? false;
+      const nextBookmarked = !previousBookmarked;
+      setBookmarkedOverrides((current) => ({
+        ...current,
+        [postId]: nextBookmarked,
+      }));
+
+      const snapshots = mutateFeedCache((post) =>
+        post.id === postId
+          ? {
+              ...post,
+              bookmarkCount: Math.max(0, post.bookmarkCount + (nextBookmarked ? 1 : -1)),
+            }
+          : post
+      );
+
+      return {
+        snapshots,
+        postId,
+        previousBookmarked,
+      };
+    },
+    onSuccess: (payload, _postId, context) => {
+      if (typeof payload?.bookmarked === "boolean" && context) {
+        setBookmarkedOverrides((current) => ({
+          ...current,
+          [context.postId]: payload.bookmarked,
+        }));
+      }
+
       setActionError(null);
       setActionMessage("Bookmark updated.");
-      await queryClient.invalidateQueries({ queryKey: ["forum-feed"] });
     },
-    onError: (error) => {
+    onError: (error, _postId, context) => {
+      restoreFeedSnapshots(context?.snapshots);
+      if (context) {
+        setBookmarkedOverrides((current) => ({
+          ...current,
+          [context.postId]: context.previousBookmarked,
+        }));
+      }
+
       setActionMessage(null);
       setActionError(error instanceof Error ? error.message : "Could not toggle bookmark");
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["forum-feed"] });
     },
   });
 
   const followMutation = useMutation({
     mutationFn: (followeeUserId: string) => toggleForumFollow({ followeeUserId }),
-    onSuccess: async () => {
+    onMutate: async (followeeUserId) => {
+      setActionMessage(null);
+      setActionError(null);
+
+      const previousFollowing = followingOverrides[followeeUserId] ?? false;
+      const nextFollowing = !previousFollowing;
+      setFollowingOverrides((current) => ({
+        ...current,
+        [followeeUserId]: nextFollowing,
+      }));
+
+      return {
+        followeeUserId,
+        previousFollowing,
+      };
+    },
+    onSuccess: (payload, _followeeUserId, context) => {
+      if (typeof payload?.following === "boolean" && context) {
+        setFollowingOverrides((current) => ({
+          ...current,
+          [context.followeeUserId]: payload.following,
+        }));
+      }
+
       setActionError(null);
       setActionMessage("Follow updated.");
-      await queryClient.invalidateQueries({ queryKey: ["forum-feed"] });
     },
-    onError: (error) => {
+    onError: (error, _followeeUserId, context) => {
+      if (context) {
+        setFollowingOverrides((current) => ({
+          ...current,
+          [context.followeeUserId]: context.previousFollowing,
+        }));
+      }
+
       setActionMessage(null);
       setActionError(error instanceof Error ? error.message : "Could not follow user");
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["forum-feed"] });
     },
   });
 
@@ -320,8 +490,13 @@ export default function FeedPage() {
               </Card>
             ) : null}
 
-            {posts.map((post) => (
-              <Card key={post.id} className="border-border bg-card/90">
+            {posts.map((post) => {
+              const isFollowingAuthor = followingOverrides[post.authorId] ?? false;
+              const isLikedPost = likedOverrides[post.id] ?? false;
+              const isBookmarkedPost = bookmarkedOverrides[post.id] ?? false;
+
+              return (
+                <Card key={post.id} className="border-border bg-card/90">
                 <CardHeader>
                   <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                     <div className="flex flex-wrap items-center gap-2">
@@ -342,7 +517,7 @@ export default function FeedPage() {
                         ) : (
                           <UserPlus className="size-3.5" />
                         )}
-                        Follow
+                        {isFollowingAuthor ? "Following" : "Follow"}
                       </Button>
                     ) : null}
                   </div>
@@ -384,7 +559,7 @@ export default function FeedPage() {
                         {likeMutation.isPending && likeMutation.variables === post.id ? (
                           <Loader2 className="size-4 animate-spin" />
                         ) : (
-                          <ThumbsUp className="size-4" />
+                          <ThumbsUp className={`size-4 ${isLikedPost ? "text-primary" : ""}`} />
                         )}
                         {post.reactionCount}
                       </button>
@@ -402,7 +577,7 @@ export default function FeedPage() {
                         {bookmarkMutation.isPending && bookmarkMutation.variables === post.id ? (
                           <Loader2 className="size-4 animate-spin" />
                         ) : (
-                          <Bookmark className="size-4" />
+                          <Bookmark className={`size-4 ${isBookmarkedPost ? "text-primary" : ""}`} />
                         )}
                         {post.bookmarkCount}
                       </button>
@@ -427,7 +602,8 @@ export default function FeedPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
 
             {feedHasNextPage ? (
               <div ref={loadMoreRef} className="py-2">
