@@ -85,6 +85,19 @@ const envSchema = z.object({
   ALERT_WEBHOOK_DEAD_LETTER_THRESHOLD: z.coerce.number().int().positive().default(10),
   ALERT_WEBHOOK_RETRY_DEPTH_THRESHOLD: z.coerce.number().int().positive().default(3),
   ALERT_WORKER_SKIP_STREAK_THRESHOLD: z.coerce.number().int().positive().default(3),
+  API_KEY_DEFAULT_EXPIRES_DAYS: z.coerce.number().int().positive().default(90),
+  API_KEY_MIN_EXPIRES_DAYS: z.coerce.number().int().positive().default(1),
+  API_KEY_MAX_EXPIRES_DAYS: z.coerce.number().int().positive().default(365),
+  API_KEY_DEFAULT_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(120),
+  API_KEY_DEFAULT_RATE_LIMIT_PER_IP_PER_MINUTE: z.coerce.number().int().positive().default(60),
+  API_KEY_DEFAULT_CONCURRENCY_LIMIT: z.coerce.number().int().positive().default(8),
+  API_KEY_SESSION_FRESH_SECONDS: z.coerce.number().int().positive().default(900),
+  API_KEY_RISK_MEDIUM_THRESHOLD: z.coerce.number().int().min(0).default(40),
+  API_KEY_RISK_HIGH_THRESHOLD: z.coerce.number().int().min(0).default(70),
+  API_KEY_RISK_BLOCK_SECONDS: z.coerce.number().int().positive().default(900),
+  API_KEY_RISK_BURST_THRESHOLD: z.coerce.number().int().positive().default(30),
+  API_KEY_SIGNATURE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  API_KEY_REQUIRE_SIGNATURE_FOR_WRITE: z.string().optional(),
   ENFORCE_SECURE_TRANSPORT: z.string().optional(),
   TRUST_PROXY: z.string().optional(),
 });
@@ -94,6 +107,14 @@ const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {
   const issues = parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
   throw new Error(`Invalid backend environment: ${issues}`);
+}
+
+if (parsed.data.API_KEY_MAX_EXPIRES_DAYS < parsed.data.API_KEY_MIN_EXPIRES_DAYS) {
+  throw new Error("Invalid backend environment: API_KEY_MAX_EXPIRES_DAYS must be >= API_KEY_MIN_EXPIRES_DAYS");
+}
+
+if (parsed.data.API_KEY_RISK_HIGH_THRESHOLD < parsed.data.API_KEY_RISK_MEDIUM_THRESHOLD) {
+  throw new Error("Invalid backend environment: API_KEY_RISK_HIGH_THRESHOLD must be >= API_KEY_RISK_MEDIUM_THRESHOLD");
 }
 
 const origins = parsed.data.CORS_ORIGINS.split(",")
@@ -155,6 +176,21 @@ export type BackendEnv = {
   alertWebhookDeadLetterThreshold: number;
   alertWebhookRetryDepthThreshold: number;
   alertWorkerSkipStreakThreshold: number;
+  apiKey: {
+    defaultExpiresDays: number;
+    minExpiresDays: number;
+    maxExpiresDays: number;
+    defaultRateLimitPerMinute: number;
+    defaultRateLimitPerIpMinute: number;
+    defaultConcurrencyLimit: number;
+    sessionFreshSeconds: number;
+    riskMediumThreshold: number;
+    riskHighThreshold: number;
+    riskBlockSeconds: number;
+    riskBurstThreshold: number;
+    signatureTtlSeconds: number;
+    requireSignatureForWrite: boolean;
+  };
   enforceSecureTransport: boolean;
   trustProxy: boolean;
 };
@@ -202,6 +238,21 @@ export const backendEnv: BackendEnv = {
   alertWebhookDeadLetterThreshold: parsed.data.ALERT_WEBHOOK_DEAD_LETTER_THRESHOLD,
   alertWebhookRetryDepthThreshold: parsed.data.ALERT_WEBHOOK_RETRY_DEPTH_THRESHOLD,
   alertWorkerSkipStreakThreshold: parsed.data.ALERT_WORKER_SKIP_STREAK_THRESHOLD,
+  apiKey: {
+    defaultExpiresDays: parsed.data.API_KEY_DEFAULT_EXPIRES_DAYS,
+    minExpiresDays: parsed.data.API_KEY_MIN_EXPIRES_DAYS,
+    maxExpiresDays: parsed.data.API_KEY_MAX_EXPIRES_DAYS,
+    defaultRateLimitPerMinute: parsed.data.API_KEY_DEFAULT_RATE_LIMIT_PER_MINUTE,
+    defaultRateLimitPerIpMinute: parsed.data.API_KEY_DEFAULT_RATE_LIMIT_PER_IP_PER_MINUTE,
+    defaultConcurrencyLimit: parsed.data.API_KEY_DEFAULT_CONCURRENCY_LIMIT,
+    sessionFreshSeconds: parsed.data.API_KEY_SESSION_FRESH_SECONDS,
+    riskMediumThreshold: parsed.data.API_KEY_RISK_MEDIUM_THRESHOLD,
+    riskHighThreshold: parsed.data.API_KEY_RISK_HIGH_THRESHOLD,
+    riskBlockSeconds: parsed.data.API_KEY_RISK_BLOCK_SECONDS,
+    riskBurstThreshold: parsed.data.API_KEY_RISK_BURST_THRESHOLD,
+    signatureTtlSeconds: parsed.data.API_KEY_SIGNATURE_TTL_SECONDS,
+    requireSignatureForWrite: parseBoolean(parsed.data.API_KEY_REQUIRE_SIGNATURE_FOR_WRITE, true),
+  },
   enforceSecureTransport: parseBoolean(parsed.data.ENFORCE_SECURE_TRANSPORT, true),
   trustProxy: parseBoolean(parsed.data.TRUST_PROXY, false),
 };

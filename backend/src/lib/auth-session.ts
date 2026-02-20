@@ -9,11 +9,14 @@ type AuthSession = {
     id: string;
     token: string;
     userId: string;
+    createdAt?: string | Date;
+    updatedAt?: string | Date;
     expiresAt: string | Date;
   };
   user: {
     id: string;
     email: string;
+    emailVerified?: boolean;
     name: string;
     image?: string | null;
   };

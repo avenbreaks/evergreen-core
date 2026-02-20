@@ -71,6 +71,13 @@
       "when": 1772236800000,
       "tag": "0009_internal_ops_audit_events",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1771602667720,
+      "tag": "0010_fresh_shadowcat",
+      "breakpoints": true
     }
   ]
 }

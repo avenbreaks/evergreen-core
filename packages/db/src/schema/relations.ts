@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 
+import { apiKeyAuditEvents, apiKeyRequestNonces, apiKeys } from "./api-keys";
 import { authAccounts, authSessions } from "./auth";
 import {
   forumBookmarks,
@@ -30,6 +31,9 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   ensPurchaseIntents: many(ensPurchaseIntents),
   authAccounts: many(authAccounts),
   authSessions: many(authSessions),
+  ownedApiKeys: many(apiKeys, { relationName: "api_key_owner" }),
+  createdApiKeys: many(apiKeys, { relationName: "api_key_creator" }),
+  apiKeyAuditEvents: many(apiKeyAuditEvents),
   forumPosts: many(forumPosts),
   forumComments: many(forumComments),
   forumReactions: many(forumReactions),
@@ -306,5 +310,46 @@ export const authSessionsRelations = relations(authSessions, ({ one }) => ({
   user: one(users, {
     fields: [authSessions.userId],
     references: [users.id],
+  }),
+}));
+
+export const apiKeysRelations = relations(apiKeys, ({ one, many }) => ({
+  owner: one(users, {
+    fields: [apiKeys.userId],
+    references: [users.id],
+    relationName: "api_key_owner",
+  }),
+  createdBy: one(users, {
+    fields: [apiKeys.createdByUserId],
+    references: [users.id],
+    relationName: "api_key_creator",
+  }),
+  rotatedFrom: one(apiKeys, {
+    fields: [apiKeys.rotatedFromKeyId],
+    references: [apiKeys.id],
+    relationName: "api_key_rotation",
+  }),
+  rotatedTo: many(apiKeys, {
+    relationName: "api_key_rotation",
+  }),
+  auditEvents: many(apiKeyAuditEvents),
+  requestNonces: many(apiKeyRequestNonces),
+}));
+
+export const apiKeyAuditEventsRelations = relations(apiKeyAuditEvents, ({ one }) => ({
+  key: one(apiKeys, {
+    fields: [apiKeyAuditEvents.keyId],
+    references: [apiKeys.id],
+  }),
+  user: one(users, {
+    fields: [apiKeyAuditEvents.userId],
+    references: [users.id],
+  }),
+}));
+
+export const apiKeyRequestNoncesRelations = relations(apiKeyRequestNonces, ({ one }) => ({
+  key: one(apiKeys, {
+    fields: [apiKeyRequestNonces.keyId],
+    references: [apiKeys.id],
   }),
 }));

@@ -12,6 +12,7 @@ import { registerEnsTxWatcherJob } from "./jobs/ens-tx-watcher";
 import { registerForumSearchSyncJob } from "./jobs/forum-search-sync";
 import { registerOpsRetentionJob } from "./jobs/ops-retention";
 import { HttpError } from "./lib/http-error";
+import { apiKeyRoutes } from "./routes/api-keys";
 import { authBridgeRoutes } from "./routes/auth-bridge";
 import { ensRoutes } from "./routes/ens";
 import { forumRoutes } from "./routes/forum";
@@ -54,6 +55,7 @@ export const buildApp = () => {
   app.register(authBridgeRoutes);
   app.register(siweRoutes);
   app.register(meRoutes);
+  app.register(apiKeyRoutes);
   app.register(ensRoutes);
   app.register(forumRoutes);
   app.register(metricsRoutes);

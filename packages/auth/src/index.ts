@@ -1,4 +1,5 @@
 export * from "./auth";
+export * from "./crypto";
 export * from "./ens";
 export * from "./env";
 export * from "./handler";
