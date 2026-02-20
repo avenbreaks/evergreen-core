@@ -752,6 +752,152 @@ test("forum DB integration moderator can lock post and resolve report", async (t
   assert.ok(listResolvedResponse.json().reports.some((report: { id: string; status: string }) => report.id === reportId && report.status === "resolved"));
 });
 
+test("forum DB integration end-to-end flow post interaction and profile update", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const authorId = randomUUID();
+  const actorId = randomUUID();
+
+  await insertUser({ id: authorId });
+  await insertUser({ id: actorId });
+
+  const app = await buildForumDbTestApp();
+  let postId: string | null = null;
+  let commentId: string | null = null;
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [authorId, actorId],
+      targetIds: [postId, commentId].filter((value): value is string => Boolean(value)),
+    });
+  });
+
+  const createPostResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": authorId,
+    },
+    payload: {
+      title: `E2E flow ${authorId.slice(0, 8)}`,
+      markdown: "Initial post body for end-to-end integration flow.",
+    },
+  });
+
+  assert.equal(createPostResponse.statusCode, 200);
+  postId = createPostResponse.json().post.id;
+
+  const reactionResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/reactions/toggle",
+    headers: {
+      "x-test-user-id": actorId,
+    },
+    payload: {
+      targetType: "post",
+      targetId: postId,
+      reactionType: "like",
+    },
+  });
+  assert.equal(reactionResponse.statusCode, 200);
+  assert.equal(reactionResponse.json().active, true);
+
+  const bookmarkResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/bookmarks/toggle",
+    headers: {
+      "x-test-user-id": actorId,
+    },
+    payload: {
+      postId,
+    },
+  });
+  assert.equal(bookmarkResponse.statusCode, 200);
+  assert.equal(bookmarkResponse.json().bookmarked, true);
+
+  const shareResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/shares",
+    headers: {
+      "x-test-user-id": actorId,
+    },
+    payload: {
+      postId,
+      shareComment: "sharing this discussion",
+    },
+  });
+  assert.equal(shareResponse.statusCode, 200);
+
+  const followResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/follows/toggle",
+    headers: {
+      "x-test-user-id": actorId,
+    },
+    payload: {
+      followeeUserId: authorId,
+    },
+  });
+  assert.equal(followResponse.statusCode, 200);
+  assert.equal(followResponse.json().following, true);
+
+  const threadDetailBeforeComment = await app.inject({
+    method: "GET",
+    url: `/api/forum/posts/${postId}`,
+  });
+  assert.equal(threadDetailBeforeComment.statusCode, 200);
+  assert.equal(threadDetailBeforeComment.json().post.id, postId);
+
+  const createCommentResponse = await app.inject({
+    method: "POST",
+    url: `/api/forum/posts/${postId}/comments`,
+    headers: {
+      "x-test-user-id": actorId,
+    },
+    payload: {
+      markdown: "Comment from integration actor",
+    },
+  });
+  assert.equal(createCommentResponse.statusCode, 200);
+  commentId = createCommentResponse.json().comment.id;
+
+  const threadDetailAfterComment = await app.inject({
+    method: "GET",
+    url: `/api/forum/posts/${postId}`,
+  });
+  assert.equal(threadDetailAfterComment.statusCode, 200);
+  assert.ok(threadDetailAfterComment.json().comments.some((comment: { id: string }) => comment.id === commentId));
+
+  const updateProfileResponse = await app.inject({
+    method: "PATCH",
+    url: "/api/profile/me",
+    headers: {
+      "x-test-user-id": authorId,
+    },
+    payload: {
+      displayName: "Integration Author",
+      bio: "Updated via end-to-end integration test",
+      websiteUrl: "https://example.com/integration",
+      githubUsername: "integration-author",
+      location: "Jakarta",
+    },
+  });
+  assert.equal(updateProfileResponse.statusCode, 200);
+
+  const profileResponse = await app.inject({
+    method: "GET",
+    url: `/api/profile/${authorId}`,
+  });
+  assert.equal(profileResponse.statusCode, 200);
+  assert.equal(profileResponse.json().profile.displayName, "Integration Author");
+  assert.equal(profileResponse.json().profile.bio, "Updated via end-to-end integration test");
+  assert.equal(profileResponse.json().profile.githubUsername, "integration-author");
+});
+
 test("forum DB integration enforces max reply depth", async (t) => {
   if (!(await canConnectToDatabase())) {
     t.skip("integration database is not available");
