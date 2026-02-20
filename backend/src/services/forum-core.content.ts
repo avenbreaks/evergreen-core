@@ -23,6 +23,20 @@ import {
   upsertTags,
 } from "./forum-core.shared";
 
+const summarizePostDetail = (post: typeof schema.forumPosts.$inferSelect) => ({
+  ...summarizePost(post),
+  contentMarkdown: post.contentMarkdown,
+  contentPlaintext: post.contentPlaintext,
+  contentMeta: post.contentMeta,
+});
+
+const summarizeCommentDetail = (comment: typeof schema.forumComments.$inferSelect) => ({
+  ...summarizeComment(comment),
+  contentMarkdown: comment.contentMarkdown,
+  contentPlaintext: comment.contentPlaintext,
+  contentMeta: comment.contentMeta,
+});
+
 export const previewForumMarkdown = async (input: { markdown: string }) => {
   const analysis = analyzeMarkdown({ markdown: input.markdown });
 
@@ -257,8 +271,8 @@ export const getForumPostDetail = async (postId: string) => {
     .orderBy(asc(schema.forumComments.createdAt));
 
   return {
-    post: summarizePost(post),
-    comments: comments.map((comment) => summarizeComment(comment)),
+    post: summarizePostDetail(post),
+    comments: comments.map((comment) => summarizeCommentDetail(comment)),
   };
 };
 

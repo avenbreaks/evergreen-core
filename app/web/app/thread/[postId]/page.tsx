@@ -170,6 +170,7 @@ export default function ThreadDiscussionPage() {
   const threadPost = detailQuery.data?.post;
   const threadComments = detailQuery.data?.comments ?? [];
   const viewerId = meQuery.data?.user?.id;
+  const threadBody = threadPost?.contentMarkdown?.trim() || threadPost?.contentPlaintext?.trim() || "";
 
   return (
     <div className="min-h-screen">
@@ -192,7 +193,7 @@ export default function ThreadDiscussionPage() {
                 {threadPost?.title || "Thread not selected"}
               </CardTitle>
               <CardDescription>
-                Live thread details from `/api/forum/posts/:postId`.
+                Live thread details from `/api/forum/posts/:postId` with full post/comment content.
               </CardDescription>
 
               <div className="flex items-center justify-between gap-2">
@@ -252,9 +253,12 @@ export default function ThreadDiscussionPage() {
                 <div className="rounded-md border border-primary/40 bg-primary/10 p-2 text-xs text-primary">{actionMessage}</div>
               ) : null}
 
-              <div className="rounded-lg border border-border bg-background p-4 text-xs text-muted-foreground">
-                Backend currently returns summary fields (id, author, counts, timestamps). Full markdown body can be
-                exposed in a later API iteration.
+              <div className="rounded-lg border border-border bg-background p-4">
+                {threadBody ? (
+                  <pre className="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-foreground">{threadBody}</pre>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Post body is empty.</p>
+                )}
               </div>
 
               <div className="flex items-center justify-between border-t border-border pt-3 text-sm text-muted-foreground">
@@ -338,8 +342,11 @@ export default function ThreadDiscussionPage() {
                   <CardTitle className="text-base">{truncateId(comment.authorId)}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm text-muted-foreground">
-                  <p>
-                    Comment metadata only: depth {comment.depth}, replies {comment.replyCount}, created {formatRelative(comment.createdAt)}.
+                  <p className="whitespace-pre-wrap break-words text-foreground">
+                    {comment.contentMarkdown?.trim() || comment.contentPlaintext?.trim() || "(empty comment)"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    depth {comment.depth} · replies {comment.replyCount} · {formatRelative(comment.createdAt)}
                   </p>
                   <button
                     className="inline-flex items-center gap-1 text-xs hover:text-foreground"

@@ -270,6 +270,79 @@ test("forum DB integration happy-path for post comment reaction and report", asy
   assert.equal(reportResponse.json().status, "open");
 });
 
+test("forum DB integration detail endpoint returns post and comment bodies", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const authorId = randomUUID();
+  const commenterId = randomUUID();
+
+  await insertUser({ id: authorId });
+  await insertUser({ id: commenterId });
+
+  const app = await buildForumDbTestApp();
+  let postId: string | null = null;
+  let commentId: string | null = null;
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [authorId, commenterId],
+      targetIds: [postId, commentId].filter((value): value is string => Boolean(value)),
+    });
+  });
+
+  const postMarkdown = "## Post body\n\nThis is a full markdown body from integration test.";
+  const createPostResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": authorId,
+    },
+    payload: {
+      title: `Detail body post ${authorId.slice(0, 8)}`,
+      markdown: postMarkdown,
+    },
+  });
+
+  assert.equal(createPostResponse.statusCode, 200);
+  postId = createPostResponse.json().post.id;
+
+  const commentMarkdown = "Comment body from integration test";
+  const createCommentResponse = await app.inject({
+    method: "POST",
+    url: `/api/forum/posts/${postId}/comments`,
+    headers: {
+      "x-test-user-id": commenterId,
+    },
+    payload: {
+      markdown: commentMarkdown,
+    },
+  });
+
+  assert.equal(createCommentResponse.statusCode, 200);
+  commentId = createCommentResponse.json().comment.id;
+
+  const detailResponse = await app.inject({
+    method: "GET",
+    url: `/api/forum/posts/${postId}`,
+  });
+
+  assert.equal(detailResponse.statusCode, 200);
+  const payload = detailResponse.json();
+  assert.equal(payload.post.id, postId);
+  assert.ok(typeof payload.post.contentMarkdown === "string");
+  assert.ok(payload.post.contentMarkdown.includes("full markdown body"));
+  assert.ok(Array.isArray(payload.comments));
+  assert.ok(payload.comments.some((comment: { id: string; contentMarkdown?: string }) => comment.id === commentId));
+
+  const createdComment = payload.comments.find((comment: { id: string; contentMarkdown?: string }) => comment.id === commentId);
+  assert.ok(createdComment);
+  assert.equal(createdComment?.contentMarkdown, commentMarkdown);
+});
+
 test("forum DB integration blocks self-share on own post", async (t) => {
   if (!(await canConnectToDatabase())) {
     t.skip("integration database is not available");

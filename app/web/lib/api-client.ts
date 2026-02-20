@@ -61,6 +61,9 @@ export type ForumPostSummary = {
   updatedAt: string;
   deletedAt: string | null;
   authorId: string;
+  contentMarkdown?: string;
+  contentPlaintext?: string;
+  contentMeta?: Record<string, unknown>;
 };
 
 export type ForumCommentSummary = {
@@ -75,6 +78,9 @@ export type ForumCommentSummary = {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  contentMarkdown?: string;
+  contentPlaintext?: string;
+  contentMeta?: Record<string, unknown>;
 };
 
 export type ForumFeedPayload = {
