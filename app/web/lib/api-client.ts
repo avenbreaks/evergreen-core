@@ -141,6 +141,22 @@ export type ModerationReportsPayload = {
   nextCursor: string | null;
 };
 
+export type ForumNotification = {
+  id: string;
+  recipientUserId: string;
+  actorUserId: string | null;
+  type: "mention" | "reply" | "reaction" | "follow" | "share" | "report_update";
+  postId: string | null;
+  commentId: string | null;
+  payload: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type ForumNotificationsPayload = {
+  notifications: ForumNotification[];
+};
+
 export type ForumProfilePayload = {
   profile?: {
     userId: string;
@@ -466,6 +482,27 @@ export const setModerationPostLock = async (payload: { postId: string; locked: b
   return postJson<{ postId: string; locked: boolean }>(`/api/forum/mod/posts/${payload.postId}/lock`, {
     locked: payload.locked,
   });
+};
+
+export const fetchForumNotifications = async (input: { limit?: number; unreadOnly?: boolean } = {}): Promise<ForumNotificationsPayload> => {
+  const params = new URLSearchParams();
+  if (input.limit) {
+    params.set("limit", String(input.limit));
+  }
+  if (input.unreadOnly !== undefined) {
+    params.set("unreadOnly", String(input.unreadOnly));
+  }
+
+  const query = params.toString();
+  const response = await fetch(`/api/notifications${query ? `?${query}` : ""}`, {
+    cache: "no-store",
+  });
+
+  return ensureOk(response, await parseJson<ForumNotificationsPayload>(response)) ?? { notifications: [] };
+};
+
+export const markForumNotificationRead = async (notificationId: string) => {
+  return patchJson<{ notificationId: string; read: boolean }>(`/api/notifications/${notificationId}/read`, {});
 };
 
 export const toggleForumReaction = async (payload: {

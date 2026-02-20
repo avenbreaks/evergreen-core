@@ -567,7 +567,7 @@ export default function ThreadDiscussionPage() {
             ) : null}
 
             {threadComments.map((comment) => (
-              <Card key={comment.id} className="border-border bg-card/90">
+              <Card key={comment.id} id={`comment-${comment.id}`} className="border-border bg-card/90">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">{truncateId(comment.authorId)}</CardTitle>
                 </CardHeader>
