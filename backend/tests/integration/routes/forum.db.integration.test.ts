@@ -515,6 +515,89 @@ test("forum DB integration resolves wallet mention to user notification", async 
   assert.equal(walletMentionRow?.mentionedUserId, mentionedUserId);
 });
 
+test("forum DB integration marks all unread notifications as read", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const authorId = randomUUID();
+  const recipientUserId = randomUUID();
+  const walletId = randomUUID();
+  const walletAddress = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+  await insertUser({ id: authorId });
+  await insertUser({ id: recipientUserId });
+  await insertWallet({
+    id: walletId,
+    userId: recipientUserId,
+    chainId: 131,
+    address: walletAddress,
+    isPrimary: true,
+  });
+
+  const app = await buildForumDbTestApp();
+
+  let postId: string | null = null;
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [authorId, recipientUserId],
+      targetIds: [postId].filter((value): value is string => Boolean(value)),
+    });
+  });
+
+  const createPostResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": authorId,
+    },
+    payload: {
+      title: `Mark all read ${authorId.slice(0, 8)}`,
+      markdown: `ping @${walletAddress}`,
+    },
+  });
+
+  assert.equal(createPostResponse.statusCode, 200);
+  postId = createPostResponse.json().post.id;
+
+  const unreadBefore = await app.inject({
+    method: "GET",
+    url: "/api/notifications?limit=20&unreadOnly=true",
+    headers: {
+      "x-test-user-id": recipientUserId,
+    },
+  });
+
+  assert.equal(unreadBefore.statusCode, 200);
+  assert.equal(unreadBefore.json().notifications.length > 0, true);
+
+  const markAllReadResponse = await app.inject({
+    method: "PATCH",
+    url: "/api/notifications/read-all",
+    headers: {
+      "x-test-user-id": recipientUserId,
+    },
+  });
+
+  assert.equal(markAllReadResponse.statusCode, 200);
+  assert.equal(markAllReadResponse.json().read, true);
+  assert.equal(markAllReadResponse.json().updatedCount > 0, true);
+
+  const unreadAfter = await app.inject({
+    method: "GET",
+    url: "/api/notifications?limit=20&unreadOnly=true",
+    headers: {
+      "x-test-user-id": recipientUserId,
+    },
+  });
+
+  assert.equal(unreadAfter.statusCode, 200);
+  assert.equal(unreadAfter.json().notifications.length, 0);
+});
+
 test("forum DB integration top topics ranks creators by aggregated popularity", async (t) => {
   if (!(await canConnectToDatabase())) {
     t.skip("integration database is not available");

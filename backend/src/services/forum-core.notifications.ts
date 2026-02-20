@@ -52,3 +52,19 @@ export const markForumNotificationRead = async (input: { userId: string; notific
     read: true,
   };
 };
+
+export const markAllForumNotificationsRead = async (input: { userId: string }) => {
+  const now = new Date();
+  const updatedRows = await authDb
+    .update(schema.forumNotifications)
+    .set({
+      readAt: now,
+    })
+    .where(and(eq(schema.forumNotifications.recipientUserId, input.userId), isNull(schema.forumNotifications.readAt)))
+    .returning({ id: schema.forumNotifications.id });
+
+  return {
+    read: true,
+    updatedCount: updatedRows.length,
+  };
+};

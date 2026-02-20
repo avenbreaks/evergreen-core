@@ -505,6 +505,10 @@ export const markForumNotificationRead = async (notificationId: string) => {
   return patchJson<{ notificationId: string; read: boolean }>(`/api/notifications/${notificationId}/read`, {});
 };
 
+export const markAllForumNotificationsRead = async () => {
+  return patchJson<{ read: boolean; updatedCount: number }>("/api/notifications/read-all", {});
+};
+
 export const toggleForumReaction = async (payload: {
   targetType: "post" | "comment";
   targetId: string;

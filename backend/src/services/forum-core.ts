@@ -26,7 +26,7 @@ export {
   lockForumPostAsModerator,
   resolveForumReportAsModerator,
 } from "./forum-core.moderation";
-export { listForumNotifications, markForumNotificationRead } from "./forum-core.notifications";
+export { listForumNotifications, markAllForumNotificationsRead, markForumNotificationRead } from "./forum-core.notifications";
 export { getForumProfile, updateForumProfile } from "./forum-core.profile";
 export {
   createForumShare,

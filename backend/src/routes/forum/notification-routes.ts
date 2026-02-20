@@ -24,6 +24,20 @@ export const registerForumNotificationRoutes = (app: FastifyInstance, context: F
   );
 
   app.patch(
+    "/api/notifications/read-all",
+    {
+      preHandler: forumWritePreHandler,
+    },
+    async (request) => {
+      const authSession = await deps.requireAuthSession(request);
+
+      return deps.markAllForumNotificationsRead({
+        userId: authSession.user.id,
+      });
+    }
+  );
+
+  app.patch(
     "/api/notifications/:notificationId/read",
     {
       preHandler: forumWritePreHandler,

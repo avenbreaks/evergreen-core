@@ -4,6 +4,7 @@ import { Search, Sparkles } from "lucide-react";
 
 import { BackendHealthPill } from "@/components/backend-health-pill";
 import { SessionDock } from "@/components/auth/session-dock";
+import { NotificationsNavLink } from "@/components/layout/notifications-nav-link";
 import { NetworkPill } from "@/components/network-pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,9 +32,7 @@ export function EvergreenHeader({ showSearch = true }: EvergreenHeaderProps) {
             <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
               <Link href="/thread">Threads</Link>
             </Button>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-              <Link href="/notifications">Notifications</Link>
-            </Button>
+            <NotificationsNavLink />
             <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
               <Link href="/profile/alex-devparty">Profile</Link>
             </Button>

@@ -10,7 +10,12 @@ import { EvergreenHeader } from "@/components/layout/evergreen-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchForumNotifications, markForumNotificationRead, type ForumNotification } from "@/lib/api-client";
+import {
+  fetchForumNotifications,
+  markAllForumNotificationsRead,
+  markForumNotificationRead,
+  type ForumNotification,
+} from "@/lib/api-client";
 
 const notificationMessage = (notification: ForumNotification): string => {
   switch (notification.type) {
@@ -81,6 +86,13 @@ export default function NotificationsPage() {
     },
   });
 
+  const markAllReadMutation = useMutation({
+    mutationFn: () => markAllForumNotificationsRead(),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+
   const notifications = notificationsQuery.data?.notifications ?? [];
   const unreadCount = notifications.filter((notification) => !notification.readAt).length;
 
@@ -99,14 +111,27 @@ export default function NotificationsPage() {
             <p className="text-sm text-muted-foreground">Auto-refresh every 10 seconds for near real-time updates.</p>
           </div>
 
-          <Button
-            variant={unreadOnly ? "default" : "outline"}
-            className={unreadOnly ? "bg-primary text-primary-foreground" : "border-border bg-background hover:bg-secondary/60"}
-            onClick={() => setUnreadOnly((value) => !value)}
-          >
-            {unreadOnly ? <BellDot className="size-4" /> : <Bell className="size-4" />}
-            {unreadOnly ? "Showing unread only" : "Show unread only"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="border-border bg-background hover:bg-secondary/60"
+              disabled={unreadCount === 0 || markAllReadMutation.isPending}
+              onClick={() => markAllReadMutation.mutate()}
+            >
+              {markAllReadMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}
+              Mark all read
+            </Button>
+
+            <Button
+              variant={unreadOnly ? "default" : "outline"}
+              className={unreadOnly ? "bg-primary text-primary-foreground" : "border-border bg-background hover:bg-secondary/60"}
+              onClick={() => setUnreadOnly((value) => !value)}
+            >
+              {unreadOnly ? <BellDot className="size-4" /> : <Bell className="size-4" />}
+              {unreadOnly ? "Showing unread only" : "Show unread only"}
+            </Button>
+          </div>
         </div>
 
         <div className="space-y-3">
