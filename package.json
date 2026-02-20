@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.5.2",
   "workspaces": [
     "backend",
+    "app/*",
     "apps/*",
     "packages/*"
   ],
@@ -18,6 +19,10 @@
     "backend:build": "pnpm --filter @evergreen-devparty/backend build",
     "backend:start": "pnpm --filter @evergreen-devparty/backend start",
     "backend:typecheck": "pnpm --filter @evergreen-devparty/backend typecheck",
-    "backend:test": "pnpm --filter @evergreen-devparty/backend test"
+    "backend:test": "pnpm --filter @evergreen-devparty/backend test",
+    "frontend:dev": "pnpm --filter @evergreen-devparty/web dev",
+    "frontend:build": "pnpm --filter @evergreen-devparty/web build",
+    "frontend:start": "pnpm --filter @evergreen-devparty/web start",
+    "frontend:lint": "pnpm --filter @evergreen-devparty/web lint"
   }
 }
