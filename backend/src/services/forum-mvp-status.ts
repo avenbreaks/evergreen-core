@@ -36,8 +36,8 @@ const buildForumMvpChecklist = (): ForumMvpChecklistItem[] => [
   {
     key: "share",
     label: "Share postingan user lain",
-    status: "partial",
-    note: "Share tersedia, tapi guard self-share belum strict",
+    status: "complete",
+    note: "Share tersedia dan self-share diblok",
   },
   {
     key: "mentions",

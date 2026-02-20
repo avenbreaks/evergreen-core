@@ -165,6 +165,10 @@ export const createForumShare = async (input: {
   shareComment?: string;
 }) => {
   const post = await getPostById(input.postId);
+  if (post.authorId === input.userId) {
+    throw new HttpError(400, "INVALID_SHARE_TARGET", "Cannot share your own post");
+  }
+
   const now = new Date();
 
   await authDb.insert(schema.forumShares).values({

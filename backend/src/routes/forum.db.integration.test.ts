@@ -270,6 +270,67 @@ test("forum DB integration happy-path for post comment reaction and report", asy
   assert.equal(reportResponse.json().status, "open");
 });
 
+test("forum DB integration blocks self-share on own post", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const ownerId = randomUUID();
+  await insertUser({ id: ownerId });
+
+  const app = await buildForumDbTestApp();
+  let postId: string | null = null;
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [ownerId],
+      targetIds: [postId].filter((value): value is string => Boolean(value)),
+    });
+  });
+
+  const createPostResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": ownerId,
+    },
+    payload: {
+      title: `Self share ${ownerId.slice(0, 8)}`,
+      markdown: "owner post",
+    },
+  });
+
+  assert.equal(createPostResponse.statusCode, 200);
+  postId = createPostResponse.json().post.id;
+
+  const shareResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/shares",
+    headers: {
+      "x-test-user-id": ownerId,
+    },
+    payload: {
+      postId,
+      shareComment: "this should fail",
+    },
+  });
+
+  assert.equal(shareResponse.statusCode, 400);
+  assert.equal(shareResponse.json().code, "INVALID_SHARE_TARGET");
+
+  const [{ authDb }, { schema }] = await Promise.all([import("@evergreen-devparty/auth"), import("@evergreen-devparty/db")]);
+  assert.ok(postId);
+  const postIdValue = postId;
+  const shareRows = await authDb
+    .select({ id: schema.forumShares.id })
+    .from(schema.forumShares)
+    .where(eq(schema.forumShares.postId, postIdValue));
+
+  assert.equal(shareRows.length, 0);
+});
+
 test("forum DB integration resolves wallet mention to user notification", async (t) => {
   if (!(await canConnectToDatabase())) {
     t.skip("integration database is not available");
