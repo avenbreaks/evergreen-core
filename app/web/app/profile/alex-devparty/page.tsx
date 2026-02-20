@@ -1,9 +1,13 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
 import { Code2, Heart, MessageCircle, Repeat2, Share2, Star, Trophy } from "lucide-react";
 
 import { EvergreenHeader } from "@/components/layout/evergreen-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchForumProfile, fetchMe } from "@/lib/api-client";
 
 const techStack = ["TypeScript", "React", "Node.js", "Rust", "PostgreSQL", "Docker", "AWS"];
 
@@ -37,6 +41,25 @@ const heatmapValues = Array.from({ length: 84 }, (_, index) => {
 });
 
 export default function DeveloperProfilePage() {
+  const meQuery = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+  });
+
+  const profileQuery = useQuery({
+    queryKey: ["forum-profile", meQuery.data?.user?.id],
+    queryFn: () => fetchForumProfile(meQuery.data?.user?.id || ""),
+    enabled: Boolean(meQuery.data?.user?.id),
+  });
+
+  const profile = profileQuery.data?.profile;
+  const displayName = profile?.displayEnsName || profile?.username || profile?.name || "alex.devparty";
+  const headline = profile?.organization || "Senior Full-Stack Engineer";
+  const followers = profile?.metrics?.followerCount ?? 0;
+  const following = profile?.metrics?.followingCount ?? 0;
+  const postsCount = profile?.metrics?.postCount ?? 0;
+  const commentsCount = profile?.metrics?.commentCount ?? 0;
+
   return (
     <div className="min-h-screen">
       <div className="grid-atmosphere fixed inset-0 -z-10 opacity-30" />
@@ -50,8 +73,8 @@ export default function DeveloperProfilePage() {
                 AD
               </div>
               <div>
-                <h1 className="font-mono text-2xl font-bold text-foreground">alex.devparty</h1>
-                <p className="text-sm text-muted-foreground">Senior Full-Stack Engineer</p>
+                <h1 className="font-mono text-2xl font-bold text-foreground">{displayName}</h1>
+                <p className="text-sm text-muted-foreground">{headline}</p>
               </div>
               <div className="flex gap-2">
                 <Button className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">Follow</Button>
@@ -60,20 +83,22 @@ export default function DeveloperProfilePage() {
                 </Button>
               </div>
               <p className="text-sm leading-relaxed text-muted-foreground">
-                Building tools for developers. Open source enthusiast. Previously at Stripe.
+                {profile
+                  ? `${profile.location ? `Based in ${profile.location}. ` : ""}${profile.websiteUrl ? `Website: ${profile.websiteUrl}` : "Forum profile is synced from backend."}`
+                  : "Sign in to load backend profile fields and metrics."}
               </p>
               <div className="grid grid-cols-3 gap-2 border-t border-border pt-4 text-center">
                 <div>
-                  <p className="text-lg font-bold text-foreground">2.4k</p>
+                  <p className="text-lg font-bold text-foreground">{followers}</p>
                   <p className="text-xs text-muted-foreground">Followers</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold text-foreground">142</p>
+                  <p className="text-lg font-bold text-foreground">{following}</p>
                   <p className="text-xs text-muted-foreground">Following</p>
                 </div>
                 <div>
-                  <p className="text-lg font-bold text-foreground">89</p>
-                  <p className="text-xs text-muted-foreground">Repos</p>
+                  <p className="text-lg font-bold text-foreground">{postsCount}</p>
+                  <p className="text-xs text-muted-foreground">Posts</p>
                 </div>
               </div>
             </CardContent>
@@ -94,6 +119,13 @@ export default function DeveloperProfilePage() {
         </aside>
 
         <section className="space-y-5">
+          {profileQuery.isPending ? <p className="text-sm text-muted-foreground">Loading backend profile...</p> : null}
+          {profileQuery.isError ? (
+            <p className="text-sm text-destructive">
+              {profileQuery.error instanceof Error ? profileQuery.error.message : "Could not load backend profile"}
+            </p>
+          ) : null}
+
           <Card className="overflow-hidden border-border bg-card/90">
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-4">
@@ -102,17 +134,19 @@ export default function DeveloperProfilePage() {
                     <Code2 className="size-4 text-primary" />
                     Contribution Activity
                   </CardTitle>
-                  <CardDescription>2,340 contributions in the last year</CardDescription>
+                  <CardDescription>
+                    {profile ? `Backend metrics loaded for ${displayName}.` : "Sign in to hydrate profile metrics from backend."}
+                  </CardDescription>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
                   <div>
-                    <p className="font-mono text-lg font-bold text-foreground">45</p>
-                    <p className="text-xs text-muted-foreground">Day streak</p>
+                    <p className="font-mono text-lg font-bold text-foreground">{commentsCount}</p>
+                    <p className="text-xs text-muted-foreground">Comments</p>
                   </div>
                   <div className="h-8 w-px bg-border" />
                   <div>
-                    <p className="font-mono text-lg font-bold text-foreground">Top 5%</p>
-                    <p className="text-xs text-muted-foreground">Global rank</p>
+                    <p className="font-mono text-lg font-bold text-foreground">{profile?.metrics?.engagementScore ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Engagement</p>
                   </div>
                 </div>
               </div>

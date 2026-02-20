@@ -45,6 +45,118 @@ export type EnsCheckPayload = {
   [key: string]: unknown;
 };
 
+export type ForumPostSummary = {
+  id: string;
+  title: string;
+  slug: string;
+  status: string;
+  isPinned: boolean;
+  isLocked: boolean;
+  commentCount: number;
+  reactionCount: number;
+  shareCount: number;
+  bookmarkCount: number;
+  lastActivityAt: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  authorId: string;
+};
+
+export type ForumCommentSummary = {
+  id: string;
+  postId: string;
+  authorId: string;
+  parentId: string | null;
+  depth: number;
+  status: string;
+  reactionCount: number;
+  replyCount: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type ForumFeedPayload = {
+  posts: ForumPostSummary[];
+  nextCursor: string | null;
+};
+
+export type ForumPostDetailPayload = {
+  post: ForumPostSummary;
+  comments: ForumCommentSummary[];
+};
+
+export type ForumProfilePayload = {
+  profile?: {
+    userId: string;
+    email?: string | null;
+    name?: string | null;
+    username?: string | null;
+    image?: string | null;
+    location?: string | null;
+    organization?: string | null;
+    websiteUrl?: string | null;
+    brandingEmail?: string | null;
+    displayWalletAddress?: string | null;
+    displayEnsName?: string | null;
+    metrics?: {
+      followerCount?: number;
+      followingCount?: number;
+      postCount?: number;
+      commentCount?: number;
+      engagementScore?: number;
+      [key: string]: unknown;
+    } | null;
+    [key: string]: unknown;
+  };
+};
+
+export const AUTH_REQUIRED_EVENT_NAME = "evergreen:auth-required";
+
+class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+const notifyAuthRequired = (message?: string) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent<{ message?: string }>(AUTH_REQUIRED_EVENT_NAME, {
+      detail: { message },
+    })
+  );
+};
+
+const getErrorMessage = (data: unknown, status: number): string => {
+  if (data && typeof data === "object" && "message" in data && typeof (data as { message?: unknown }).message === "string") {
+    return (data as { message: string }).message;
+  }
+
+  return `Request failed (${status})`;
+};
+
+const ensureOk = <T>(response: Response, data: T | null): T | null => {
+  if (response.ok) {
+    return data;
+  }
+
+  const message = getErrorMessage(data, response.status);
+  if (response.status === 401) {
+    notifyAuthRequired(message);
+  }
+
+  throw new ApiError(message, response.status);
+};
+
 const parseJson = async <T>(response: Response): Promise<T | null> => {
   const text = await response.text();
   if (!text) {
@@ -99,27 +211,39 @@ export const fetchNetwork = async (): Promise<NetworkPayload> => {
   return payload ?? {};
 };
 
-export const postJson = async <TResponse>(url: string, payload: unknown): Promise<TResponse | null> => {
+const requestJson = async <TResponse>(
+  url: string,
+  input: {
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    payload?: unknown;
+  }
+): Promise<TResponse | null> => {
   const response = await fetch(url, {
-    method: "POST",
+    method: input.method,
     headers: {
       "content-type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body: input.payload === undefined ? undefined : JSON.stringify(input.payload),
+    cache: "no-store",
   });
 
   const data = await parseJson<TResponse>(response);
 
-  if (!response.ok) {
-    const message =
-      data && typeof data === "object" && "message" in data && typeof (data as { message?: unknown }).message === "string"
-        ? (data as { message: string }).message
-        : `Request failed (${response.status})`;
+  return ensureOk(response, data);
+};
 
-    throw new Error(message);
-  }
+export const postJson = async <TResponse>(url: string, payload: unknown): Promise<TResponse | null> => {
+  return requestJson<TResponse>(url, {
+    method: "POST",
+    payload,
+  });
+};
 
-  return data;
+export const patchJson = async <TResponse>(url: string, payload: unknown): Promise<TResponse | null> => {
+  return requestJson<TResponse>(url, {
+    method: "PATCH",
+    payload,
+  });
 };
 
 export const fetchEnsTlds = async (): Promise<EnsTldsPayload> => {
@@ -127,11 +251,7 @@ export const fetchEnsTlds = async (): Promise<EnsTldsPayload> => {
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    throw new Error(`ENS tlds request failed (${response.status})`);
-  }
-
-  const data = await parseJson<EnsTldsPayload>(response);
+  const data = ensureOk(response, await parseJson<EnsTldsPayload>(response));
   return data ?? { tlds: [] };
 };
 
@@ -150,4 +270,100 @@ export const requestPasswordReset = async (payload: { email: string; redirectTo?
 
 export const submitResetPassword = async (payload: { token: string; newPassword: string }) => {
   return postJson<{ status?: boolean; message?: string }>("/api/password/reset-password", payload);
+};
+
+export const fetchForumFeed = async (input: {
+  limit?: number;
+  cursor?: string;
+  followingOnly?: boolean;
+} = {}): Promise<ForumFeedPayload> => {
+  const params = new URLSearchParams();
+  if (input.limit) {
+    params.set("limit", String(input.limit));
+  }
+  if (input.cursor) {
+    params.set("cursor", input.cursor);
+  }
+  if (input.followingOnly !== undefined) {
+    params.set("followingOnly", String(input.followingOnly));
+  }
+
+  const query = params.toString();
+  const response = await fetch(`/api/forum/feed${query ? `?${query}` : ""}`, {
+    cache: "no-store",
+  });
+
+  const payload = ensureOk(response, await parseJson<ForumFeedPayload>(response));
+  return payload ?? { posts: [], nextCursor: null };
+};
+
+export const createForumPost = async (payload: {
+  title: string;
+  markdown: string;
+  tags?: string[];
+}) => {
+  return postJson<{ post: ForumPostSummary; tags?: string[] }>("/api/forum/posts", payload);
+};
+
+export const fetchForumPostDetail = async (postId: string): Promise<ForumPostDetailPayload> => {
+  const response = await fetch(`/api/forum/posts/${postId}`, {
+    cache: "no-store",
+  });
+
+  const payload = ensureOk(response, await parseJson<ForumPostDetailPayload>(response));
+  if (!payload) {
+    throw new Error("Forum post payload is empty");
+  }
+
+  return payload;
+};
+
+export const createForumComment = async (postId: string, payload: { markdown: string; parentId?: string }) => {
+  return postJson<{ comment: ForumCommentSummary }>(`/api/forum/posts/${postId}/comments`, payload);
+};
+
+export const patchForumProfile = async (payload: {
+  location?: string;
+  organization?: string;
+  websiteUrl?: string;
+  brandingEmail?: string;
+  displayWalletAddress?: string;
+  displayEnsName?: string;
+}) => {
+  return patchJson<ForumProfilePayload>("/api/profile/me", payload);
+};
+
+export const fetchForumProfile = async (userId: string): Promise<ForumProfilePayload> => {
+  const response = await fetch(`/api/profile/${userId}`, {
+    cache: "no-store",
+  });
+
+  return ensureOk(response, await parseJson<ForumProfilePayload>(response)) ?? {};
+};
+
+export const toggleForumReaction = async (payload: {
+  targetType: "post" | "comment";
+  targetId: string;
+  reactionType?: string;
+}) => {
+  return postJson<{ active: boolean; targetType: string; targetId: string; reactionType: string }>(
+    "/api/forum/reactions/toggle",
+    {
+      targetType: payload.targetType,
+      targetId: payload.targetId,
+      reactionType: payload.reactionType || "like",
+    }
+  );
+};
+
+export const shareForumPost = async (payload: { postId: string; shareComment?: string }) => {
+  return postJson<{ id: string; postId: string; authorId: string }>("/api/forum/shares", payload);
+};
+
+export const toggleForumBookmark = async (payload: { postId: string; pinned?: boolean }) => {
+  return postJson<{ bookmarked: boolean; postId: string; pinned?: boolean }>("/api/forum/bookmarks/toggle", payload);
+};
+
+export const toggleForumFollow = async (payload: { followeeUserId: string }) => {
+  return postJson<{ following: boolean; followeeUserId: string }>("/api/forum/follows/toggle", payload);
 };

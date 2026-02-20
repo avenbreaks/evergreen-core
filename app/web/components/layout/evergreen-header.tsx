@@ -29,7 +29,7 @@ export function EvergreenHeader({ showSearch = true }: EvergreenHeaderProps) {
               <Link href="/feed">Feed</Link>
             </Button>
             <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-              <Link href="/thread/react-usememo">Threads</Link>
+              <Link href="/thread">Threads</Link>
             </Button>
             <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
               <Link href="/profile/alex-devparty">Profile</Link>

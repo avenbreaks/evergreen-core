@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Camera, Fingerprint, Github, Globe, Save, User } from "lucide-react";
 
 import { EvergreenHeader } from "@/components/layout/evergreen-header";
@@ -12,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { fetchForumProfile, fetchMe, patchForumProfile } from "@/lib/api-client";
 
 const navItems = [
   { label: "Public Profile", active: true },
@@ -22,19 +24,78 @@ const navItems = [
 ];
 
 export default function SettingsProfilePage() {
-  const [displayName, setDisplayName] = useState("Alex Developer");
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [bio, setBio] = useState("");
   const [skills, setSkills] = useState(["Rust", "React", "Solidity"]);
   const [skillInput, setSkillInput] = useState("");
   const [twitter, setTwitter] = useState("");
-  const [website, setWebsite] = useState("");
+  const [website, setWebsite] = useState<string | null>(null);
+  const [location, setLocation] = useState<string | null>(null);
+  const [organization, setOrganization] = useState<string | null>(null);
+  const [brandingEmail, setBrandingEmail] = useState<string | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [ensHandle, setEnsHandle] = useState<string | null>(null);
   const [githubSyncEnabled, setGithubSyncEnabled] = useState(true);
-  const [saved, setSaved] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+
+  const meQuery = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+  });
+
+  const profileQuery = useQuery({
+    queryKey: ["forum-profile", meQuery.data?.user?.id],
+    queryFn: () => fetchForumProfile(meQuery.data?.user?.id || ""),
+    enabled: Boolean(meQuery.data?.user?.id),
+  });
+
+  const profile = profileQuery.data?.profile;
+  const displayNameValue = displayName ?? meQuery.data?.user?.name ?? "Alex Developer";
+  const locationValue = location ?? profile?.location ?? "";
+  const organizationValue = organization ?? profile?.organization ?? "";
+  const websiteValue = website ?? profile?.websiteUrl ?? "";
+  const brandingEmailValue = brandingEmail ?? profile?.brandingEmail ?? "";
+  const walletAddressValue = walletAddress ?? profile?.displayWalletAddress ?? "";
+  const ensHandleValue = ensHandle ?? profile?.displayEnsName ?? "alex_dev.eth";
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      patchForumProfile({
+        location: locationValue || undefined,
+        organization: organizationValue || undefined,
+        websiteUrl: websiteValue || undefined,
+        brandingEmail: brandingEmailValue || undefined,
+        displayWalletAddress: walletAddressValue || undefined,
+        displayEnsName: ensHandleValue || undefined,
+      }),
+    onSuccess: (payload) => {
+      setStatusError(null);
+      setStatusMessage("Forum profile synced to backend.");
+
+      const profile = payload?.profile;
+      if (!profile) {
+        return;
+      }
+
+      setLocation(profile.location || "");
+      setOrganization(profile.organization || "");
+      setWebsite(profile.websiteUrl || "");
+      setBrandingEmail(profile.brandingEmail || "");
+      setWalletAddress(profile.displayWalletAddress || "");
+      setEnsHandle(profile.displayEnsName || "");
+    },
+    onError: (error) => {
+      setStatusMessage(null);
+      setStatusError(error instanceof Error ? error.message : "Failed to sync profile");
+    },
+  });
 
   const onSave = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setStatusMessage(null);
+    setStatusError(null);
+    saveMutation.mutate();
   };
 
   return (
@@ -65,6 +126,17 @@ export default function SettingsProfilePage() {
           <div className="space-y-1">
             <h1 className="text-3xl font-black tracking-tight">Public Profile</h1>
             <p className="text-sm text-muted-foreground">Manage your public presence and developer identity.</p>
+            <p className="text-xs text-muted-foreground">
+              {meQuery.data?.user
+                ? `Signed in as ${meQuery.data.user.email || meQuery.data.user.id}`
+                : "Sign in to sync profile changes with backend."}
+            </p>
+            {profileQuery.isPending ? <p className="text-xs text-muted-foreground">Loading current profile values...</p> : null}
+            {profileQuery.isError ? (
+              <p className="text-xs text-destructive">
+                {profileQuery.error instanceof Error ? profileQuery.error.message : "Could not load profile from backend"}
+              </p>
+            ) : null}
           </div>
 
           <Card className="border-border bg-card/90">
@@ -101,7 +173,7 @@ export default function SettingsProfilePage() {
                   <Label htmlFor="display-name">Display name</Label>
                   <Input
                     id="display-name"
-                    value={displayName}
+                    value={displayNameValue}
                     onChange={(event) => setDisplayName(event.target.value)}
                     className="border-border bg-background"
                   />
@@ -111,8 +183,8 @@ export default function SettingsProfilePage() {
                   <div className="relative">
                     <Input
                       id="ens-handle"
-                      value="alex_dev.eth"
-                      readOnly
+                      value={ensHandleValue}
+                      onChange={(event) => setEnsHandle(event.target.value)}
                       className="border-border bg-card font-mono text-muted-foreground"
                     />
                     <Fingerprint className="absolute right-3 top-1/2 size-4 -translate-y-1/2 text-primary" />
@@ -193,10 +265,60 @@ export default function SettingsProfilePage() {
                   <Globe className="size-4" />
                 </span>
                 <Input
-                  value={website}
+                  value={websiteValue}
                   onChange={(event) => setWebsite(event.target.value)}
                   placeholder="https://website.com"
                   className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card/90">
+            <CardHeader>
+              <CardTitle>Backend forum profile fields</CardTitle>
+              <CardDescription>This section syncs to `/api/profile/me` on save.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="profile-location">Location</Label>
+                <Input
+                  id="profile-location"
+                  value={locationValue}
+                  onChange={(event) => setLocation(event.target.value)}
+                  placeholder="Jakarta"
+                  className="border-border bg-background"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="profile-organization">Organization</Label>
+                <Input
+                  id="profile-organization"
+                  value={organizationValue}
+                  onChange={(event) => setOrganization(event.target.value)}
+                  placeholder="Evergreen Labs"
+                  className="border-border bg-background"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="profile-branding-email">Branding email</Label>
+                <Input
+                  id="profile-branding-email"
+                  type="email"
+                  value={brandingEmailValue}
+                  onChange={(event) => setBrandingEmail(event.target.value)}
+                  placeholder="you@company.com"
+                  className="border-border bg-background"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="profile-wallet">Display wallet address</Label>
+                <Input
+                  id="profile-wallet"
+                  value={walletAddressValue}
+                  onChange={(event) => setWalletAddress(event.target.value)}
+                  placeholder="0x..."
+                  className="border-border bg-background font-mono"
                 />
               </div>
             </CardContent>
@@ -221,13 +343,14 @@ export default function SettingsProfilePage() {
             <Button type="button" variant="outline" className="border-border bg-background hover:bg-secondary/60">
               Cancel
             </Button>
-            <Button type="submit" className="bg-primary text-primary-foreground hover:bg-primary/90">
-              <Save className="size-4" />
+            <Button type="submit" className="bg-primary text-primary-foreground hover:bg-primary/90" disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? <Save className="size-4 animate-pulse" /> : <Save className="size-4" />}
               Save changes
             </Button>
           </div>
 
-          {saved ? <p className="text-right text-sm text-primary">Settings saved locally in this prototype.</p> : null}
+          {statusError ? <p className="text-right text-sm text-destructive">{statusError}</p> : null}
+          {statusMessage ? <p className="text-right text-sm text-primary">{statusMessage}</p> : null}
         </form>
       </main>
     </div>

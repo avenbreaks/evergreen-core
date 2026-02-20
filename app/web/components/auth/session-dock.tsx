@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, LogOut, UserRound } from "lucide-react";
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fetchSession, postJson } from "@/lib/api-client";
+import { AUTH_REQUIRED_EVENT_NAME, fetchSession, postJson } from "@/lib/api-client";
 
 type SessionDockProps = {
   compact?: boolean;
@@ -93,6 +93,28 @@ export function SessionDock({ compact = false }: SessionDockProps) {
     }
 
     return authenticatedUser.name || authenticatedUser.email || "Member";
+  }, [authenticatedUser]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleAuthRequired = (event: Event) => {
+      if (authenticatedUser) {
+        return;
+      }
+
+      const customEvent = event as CustomEvent<{ message?: string }>;
+      setActiveTab("signin");
+      setErrorMessage(customEvent.detail?.message || "Please sign in to continue.");
+      setSheetOpen(true);
+    };
+
+    window.addEventListener(AUTH_REQUIRED_EVENT_NAME, handleAuthRequired as EventListener);
+    return () => {
+      window.removeEventListener(AUTH_REQUIRED_EVENT_NAME, handleAuthRequired as EventListener);
+    };
   }, [authenticatedUser]);
 
   const handleSignIn = (event: FormEvent<HTMLFormElement>) => {
