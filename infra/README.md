@@ -1,6 +1,6 @@
 # Infra Docker Compose
 
-Infrastructure stack for local Evergreen Devparty development.
+Local infrastructure stack for Evergreen Devparty development.
 
 ## Services
 - PostgreSQL (`localhost:5436`)
@@ -12,10 +12,10 @@ Infrastructure stack for local Evergreen Devparty development.
 ## Mailpit Runtime Env
 - `MAILPIT_MAX_MESSAGES` (default `1000`)
 - `MAILPIT_SMTP_AUTH_ACCEPT_ANY` (default `true`)
-- `MAILPIT_SMTP_AUTH_ALLOW_INSECURE` (default `true`, only untuk localhost)
+- `MAILPIT_SMTP_AUTH_ALLOW_INSECURE` (default `true`, localhost only)
 - `MAILPIT_SEND_API_AUTH_ACCEPT_ANY` (default `true`)
 
-Untuk aplikasi lokal, gunakan SMTP:
+Local app SMTP settings:
 - host: `localhost`
 - port: `1025`
 
@@ -23,9 +23,9 @@ Untuk aplikasi lokal, gunakan SMTP:
 - RPC: `https://rpc-api.oorthnexus.xyz`
 - Chain ID: `131`
 - Explorer: `https://analytics.oorthnexus.xyz`
-- ENS contract and TLD deployment references: `deployment-custom.md`
+- ENS contract/TLD deployment references: `deployment-custom.md`
 
-## Quick start
+## Quick Start
 1. Copy env template:
    - `cp infra/.env.example infra/.env`
 2. Start stack:
