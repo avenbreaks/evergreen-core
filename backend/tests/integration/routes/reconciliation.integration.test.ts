@@ -3,7 +3,7 @@ import test from "node:test";
 
 import Fastify from "fastify";
 
-import { HttpError } from "../lib/http-error";
+import { HttpError } from "../../../src/lib/http-error";
 
 const INTERNAL_SECRET = "test-internal-secret";
 
@@ -51,7 +51,7 @@ const buildDeps = (overrides: Partial<ReconciliationDependencies> = {}): Reconci
 };
 
 const buildReconciliationTestApp = async (depsOverrides: Partial<ReconciliationDependencies> = {}) => {
-  const { reconciliationRoutes } = await import("./reconciliation");
+  const { reconciliationRoutes } = await import("../../../src/routes/reconciliation");
   const app = Fastify({ logger: false });
 
   app.setErrorHandler((error, _request, reply) => {

@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { eq, inArray, sql } from "drizzle-orm";
 
-import { HttpError } from "../lib/http-error";
+import { HttpError } from "../../../src/lib/http-error";
 
 const DEFAULT_DATABASE_URL = "postgresql://devparty:devparty@localhost:5436/devpartydb";
 
@@ -54,7 +54,7 @@ test("setForumPostPinned enforces owner-or-moderator permission matrix", async (
   const [{ authDb }, { schema }, social] = await Promise.all([
     import("@evergreen-devparty/auth"),
     import("@evergreen-devparty/db"),
-    import("./forum-core.social"),
+    import("../../../src/services/forum-core.social"),
   ]);
 
   const ownerId = randomUUID();
@@ -112,7 +112,7 @@ test("createForumReport blocks self-report and duplicate open report", async (t)
   const [{ authDb }, { schema }, moderation] = await Promise.all([
     import("@evergreen-devparty/auth"),
     import("@evergreen-devparty/db"),
-    import("./forum-core.moderation"),
+    import("../../../src/services/forum-core.moderation"),
   ]);
 
   const reporterId = randomUUID();
@@ -176,7 +176,7 @@ test("lockForumPostAsModerator requires moderator role", async (t) => {
   const [{ authDb }, { schema }, moderation] = await Promise.all([
     import("@evergreen-devparty/auth"),
     import("@evergreen-devparty/db"),
-    import("./forum-core.moderation"),
+    import("../../../src/services/forum-core.moderation"),
   ]);
 
   const ownerId = randomUUID();

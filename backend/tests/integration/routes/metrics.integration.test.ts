@@ -3,7 +3,7 @@ import test from "node:test";
 
 import Fastify from "fastify";
 
-import { HttpError } from "../lib/http-error";
+import { HttpError } from "../../../src/lib/http-error";
 
 const INTERNAL_SECRET = "test-metrics-secret";
 
@@ -11,7 +11,7 @@ process.env.INTERNAL_OPS_ACTIVE_SECRET = INTERNAL_SECRET;
 process.env.TRUST_PROXY = "false";
 
 const buildMetricsTestApp = async () => {
-  const { metricsRoutes } = await import("./metrics");
+  const { metricsRoutes } = await import("../../../src/routes/metrics");
   const app = Fastify({ logger: false });
 
   app.setErrorHandler((error, _request, reply) => {

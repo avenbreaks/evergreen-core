@@ -4,7 +4,7 @@ import test from "node:test";
 
 import Fastify from "fastify";
 
-import { HttpError } from "../lib/http-error";
+import { HttpError } from "../../../src/lib/http-error";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
 const INTENT_ID = "11111111-1111-4111-8111-111111111111";
@@ -69,7 +69,7 @@ const buildDeps = (overrides: Record<string, unknown>) => {
 };
 
 const buildWebhookTestApp = async (depsOverrides: Record<string, unknown> = {}) => {
-  const { webhookRoutes } = await import("./webhooks");
+  const { webhookRoutes } = await import("../../../src/routes/webhooks");
   const app = Fastify({ logger: false });
 
   app.setErrorHandler((error, _request, reply) => {

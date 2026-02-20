@@ -98,6 +98,10 @@ const envSchema = z.object({
   API_KEY_RISK_BURST_THRESHOLD: z.coerce.number().int().positive().default(30),
   API_KEY_SIGNATURE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   API_KEY_REQUIRE_SIGNATURE_FOR_WRITE: z.string().optional(),
+  API_KEY_RATE_LIMIT_REDIS_URL: z.string().optional(),
+  API_KEY_RATE_LIMIT_REDIS_PREFIX: z.string().min(1).default("evergreen:api-key"),
+  API_KEY_RATE_LIMIT_REDIS_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
+  API_KEY_CONCURRENCY_SLOT_TTL_SECONDS: z.coerce.number().int().positive().default(120),
   ENFORCE_SECURE_TRANSPORT: z.string().optional(),
   TRUST_PROXY: z.string().optional(),
 });
@@ -190,6 +194,12 @@ export type BackendEnv = {
     riskBurstThreshold: number;
     signatureTtlSeconds: number;
     requireSignatureForWrite: boolean;
+    rateLimiter: {
+      redisUrl: string | null;
+      redisPrefix: string;
+      redisConnectTimeoutMs: number;
+      concurrencySlotTtlSeconds: number;
+    };
   };
   enforceSecureTransport: boolean;
   trustProxy: boolean;
@@ -252,6 +262,12 @@ export const backendEnv: BackendEnv = {
     riskBurstThreshold: parsed.data.API_KEY_RISK_BURST_THRESHOLD,
     signatureTtlSeconds: parsed.data.API_KEY_SIGNATURE_TTL_SECONDS,
     requireSignatureForWrite: parseBoolean(parsed.data.API_KEY_REQUIRE_SIGNATURE_FOR_WRITE, true),
+    rateLimiter: {
+      redisUrl: parsed.data.API_KEY_RATE_LIMIT_REDIS_URL?.trim() || null,
+      redisPrefix: parsed.data.API_KEY_RATE_LIMIT_REDIS_PREFIX,
+      redisConnectTimeoutMs: parsed.data.API_KEY_RATE_LIMIT_REDIS_CONNECT_TIMEOUT_MS,
+      concurrencySlotTtlSeconds: parsed.data.API_KEY_CONCURRENCY_SLOT_TTL_SECONDS,
+    },
   },
   enforceSecureTransport: parseBoolean(parsed.data.ENFORCE_SECURE_TRANSPORT, true),
   trustProxy: parseBoolean(parsed.data.TRUST_PROXY, false),

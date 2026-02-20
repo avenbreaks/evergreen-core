@@ -35,7 +35,7 @@ test("advisory lock allows only one concurrent worker run", async (t) => {
     return;
   }
 
-  const { runWithEnsAdvisoryLock } = await import("./ens-reconciliation-lock");
+  const { runWithEnsAdvisoryLock } = await import("../../../src/services/ens-reconciliation-lock");
   const testResource = 29000000 + Math.floor(Math.random() * 100000);
   const executionOrder: string[] = [];
 

@@ -65,7 +65,7 @@ test("reserveRetryableWebhookEvents claims due failed webhook events", async (t)
   const [{ authDb }, { schema }, { reserveRetryableWebhookEvents }] = await Promise.all([
     import("@evergreen-devparty/auth"),
     import("@evergreen-devparty/db"),
-    import("./ens-webhook-events"),
+    import("../../../src/services/ens-webhook-events"),
   ]);
 
   const userId = randomUUID();
@@ -131,7 +131,7 @@ test("markWebhookEventFailed sends event to dead letter after max attempts", asy
   const [{ authDb }, { schema }, { markWebhookEventFailed }] = await Promise.all([
     import("@evergreen-devparty/auth"),
     import("@evergreen-devparty/db"),
-    import("./ens-webhook-events"),
+    import("../../../src/services/ens-webhook-events"),
   ]);
 
   const userId = randomUUID();

@@ -3,8 +3,8 @@ import test from "node:test";
 
 import Fastify from "fastify";
 
-import type { ForumRouteDependencies } from "./forum";
-import { HttpError } from "../lib/http-error";
+import type { ForumRouteDependencies } from "../../../src/routes/forum";
+import { HttpError } from "../../../src/lib/http-error";
 
 process.env.DATABASE_URL ??= "postgresql://devparty:devparty@localhost:5436/devpartydb";
 process.env.BETTER_AUTH_SECRET ??= "forum-route-test-secret-0123456789abcdef";
@@ -37,7 +37,7 @@ const buildDeps = (overrides: Partial<ForumRouteDependencies> = {}): Partial<For
 });
 
 const buildForumTestApp = async (depsOverrides: Partial<ForumRouteDependencies> = {}) => {
-  const { forumRoutes } = await import("./forum");
+  const { forumRoutes } = await import("../../../src/routes/forum");
   const app = Fastify({ logger: false });
 
   app.setErrorHandler((error, _request, reply) => {

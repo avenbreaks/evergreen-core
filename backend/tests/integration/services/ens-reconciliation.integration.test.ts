@@ -38,7 +38,7 @@ test("reconcileStalePurchaseIntents promotes and expires stale intents in DB", a
   const [{ authDb }, { schema }, { reconcileStalePurchaseIntents }] = await Promise.all([
     import("@evergreen-devparty/auth"),
     import("@evergreen-devparty/db"),
-    import("./ens-reconciliation"),
+    import("../../../src/services/ens-reconciliation"),
   ]);
 
   const userId = randomUUID();
@@ -144,7 +144,7 @@ test("reconcileStalePurchaseIntents dry-run does not persist status updates", as
   const [{ authDb }, { schema }, { reconcileStalePurchaseIntents }] = await Promise.all([
     import("@evergreen-devparty/auth"),
     import("@evergreen-devparty/db"),
-    import("./ens-reconciliation"),
+    import("../../../src/services/ens-reconciliation"),
   ]);
 
   const userId = randomUUID();

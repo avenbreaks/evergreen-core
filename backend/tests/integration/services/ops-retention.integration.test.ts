@@ -57,7 +57,7 @@ test("runOpsRetention deletes old processed and dead letter webhook events", asy
   const [{ authDb }, { schema }, { runOpsRetention }] = await Promise.all([
     import("@evergreen-devparty/auth"),
     import("@evergreen-devparty/db"),
-    import("./ops-retention"),
+    import("../../../src/services/ops-retention"),
   ]);
 
   const userId = randomUUID();

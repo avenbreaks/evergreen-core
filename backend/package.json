@@ -10,7 +10,7 @@
     "build": "tsup src/server.ts --format esm --target node20 --sourcemap --out-dir dist",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
     "@evergreen-devparty/auth": "workspace:*",
@@ -21,6 +21,7 @@
     "dotenv": "^16.6.1",
     "drizzle-orm": "^0.44.7",
     "fastify": "^5.6.1",
+    "redis": "^5.8.2",
     "viem": "^2.38.4",
     "zod": "^4.3.6"
   },

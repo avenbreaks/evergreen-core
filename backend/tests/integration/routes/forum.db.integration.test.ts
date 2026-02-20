@@ -7,8 +7,8 @@ import { eq, inArray, sql } from "drizzle-orm";
 
 import type { FastifyRequest } from "fastify";
 
-import { HttpError } from "../lib/http-error";
-import type { ForumRouteDependencies } from "./forum";
+import { HttpError } from "../../../src/lib/http-error";
+import type { ForumRouteDependencies } from "../../../src/routes/forum";
 
 const DEFAULT_DATABASE_URL = "postgresql://devparty:devparty@localhost:5436/devpartydb";
 
@@ -56,7 +56,7 @@ const buildTestSession = (userId: string): Awaited<ReturnType<ForumRouteDependen
 });
 
 const buildForumDbTestApp = async () => {
-  const { forumRoutes } = await import("./forum");
+  const { forumRoutes } = await import("../../../src/routes/forum");
 
   const app = Fastify({ logger: false });
   app.setErrorHandler((error, _request, reply) => {

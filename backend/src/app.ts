@@ -25,6 +25,7 @@ import { networkRoutes } from "./routes/network";
 import { reconciliationRoutes } from "./routes/reconciliation";
 import { siweRoutes } from "./routes/siwe";
 import { webhookRoutes } from "./routes/webhooks";
+import { shutdownApiKeyRateLimiter } from "./services/api-keys/rate-limit";
 import { setOpsMetricAlertHandler } from "./services/ops-metrics";
 
 export const buildApp = () => {
@@ -79,6 +80,7 @@ export const buildApp = () => {
   });
 
   app.addHook("onClose", async () => {
+    await shutdownApiKeyRateLimiter();
     setOpsMetricAlertHandler(null);
   });
 

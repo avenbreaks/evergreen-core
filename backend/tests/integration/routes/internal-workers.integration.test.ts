@@ -3,17 +3,17 @@ import test from "node:test";
 
 import Fastify from "fastify";
 
-import { HttpError } from "../lib/http-error";
-import type { OpsMetricsSnapshot } from "../services/ops-metrics";
+import { HttpError } from "../../../src/lib/http-error";
+import type { OpsMetricsSnapshot } from "../../../src/services/ops-metrics";
 import type {
   CancelForumSearchQueueResult,
   ForumSearchSyncQueueStatusSummary,
   RequeueForumSearchDeadLetterResult,
-} from "../services/forum-search-sync-queue";
-import type { ClaimInternalOpsCooldownResult } from "../services/internal-ops-throttle-store";
-import type { ForumSearchControlState } from "../services/forum-search-control";
-import type { ForumMvpStatusSummary } from "../services/forum-mvp-status";
-import type { InternalOpsAuditEvent } from "../services/internal-ops-audit";
+} from "../../../src/services/forum-search-sync-queue";
+import type { ClaimInternalOpsCooldownResult } from "../../../src/services/internal-ops-throttle-store";
+import type { ForumSearchControlState } from "../../../src/services/forum-search-control";
+import type { ForumMvpStatusSummary } from "../../../src/services/forum-mvp-status";
+import type { InternalOpsAuditEvent } from "../../../src/services/internal-ops-audit";
 
 const INTERNAL_SECRET = "test-internal-worker-secret";
 
@@ -130,7 +130,7 @@ const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorker
 };
 
 const buildInternalWorkersTestApp = async (depsOverrides: Partial<InternalWorkersDeps> = {}) => {
-  const { internalWorkersRoutes } = await import("./internal-workers");
+  const { internalWorkersRoutes } = await import("../../../src/routes/internal-workers");
   const app = Fastify({ logger: false });
 
   app.setErrorHandler((error, _request, reply) => {

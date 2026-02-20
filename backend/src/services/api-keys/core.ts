@@ -726,7 +726,7 @@ export const authenticateApiKeyRequest = async (input: {
       ? Math.max(1, Math.floor(key.concurrencyLimit / 2))
       : Math.max(1, key.concurrencyLimit);
 
-  const keyRate = consumeToken({
+  const keyRate = await consumeToken({
     bucketKey: `api-key:${key.id}`,
     maxTokens: effectiveRatePerMinute,
     windowMs: 60_000,
@@ -758,7 +758,7 @@ export const authenticateApiKeyRequest = async (input: {
     });
   }
 
-  const ipRate = consumeToken({
+  const ipRate = await consumeToken({
     bucketKey: `api-key-ip:${key.id}:${ipAddress}`,
     maxTokens: effectiveRatePerIpMinute,
     windowMs: 60_000,
@@ -790,7 +790,7 @@ export const authenticateApiKeyRequest = async (input: {
     });
   }
 
-  const releaseConcurrency = acquireInFlightSlot(key.id, effectiveConcurrency);
+  const releaseConcurrency = await acquireInFlightSlot(key.id, effectiveConcurrency);
   if (!releaseConcurrency) {
     await safeRecordAudit({
       keyId: key.id,
