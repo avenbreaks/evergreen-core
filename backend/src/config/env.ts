@@ -102,6 +102,10 @@ const envSchema = z.object({
   API_KEY_RATE_LIMIT_REDIS_PREFIX: z.string().min(1).default("evergreen:api-key"),
   API_KEY_RATE_LIMIT_REDIS_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
   API_KEY_CONCURRENCY_SLOT_TTL_SECONDS: z.coerce.number().int().positive().default(120),
+  AUTH_ENDPOINT_SIGN_IN_EMAIL: z.string().regex(/^\/.+/).default("/api/auth/sign-in/email"),
+  AUTH_ENDPOINT_SIGN_UP_EMAIL: z.string().regex(/^\/.+/).default("/api/auth/sign-up/email"),
+  AUTH_ENDPOINT_REQUEST_PASSWORD_RESET: z.string().regex(/^\/.+/).default("/api/auth/request-password-reset"),
+  AUTH_ENDPOINT_RESET_PASSWORD: z.string().regex(/^\/.+/).default("/api/auth/reset-password"),
   ENFORCE_SECURE_TRANSPORT: z.string().optional(),
   TRUST_PROXY: z.string().optional(),
 });
@@ -201,6 +205,12 @@ export type BackendEnv = {
       concurrencySlotTtlSeconds: number;
     };
   };
+  authEndpoints: {
+    signInEmail: string;
+    signUpEmail: string;
+    requestPasswordReset: string;
+    resetPassword: string;
+  };
   enforceSecureTransport: boolean;
   trustProxy: boolean;
 };
@@ -268,6 +278,12 @@ export const backendEnv: BackendEnv = {
       redisConnectTimeoutMs: parsed.data.API_KEY_RATE_LIMIT_REDIS_CONNECT_TIMEOUT_MS,
       concurrencySlotTtlSeconds: parsed.data.API_KEY_CONCURRENCY_SLOT_TTL_SECONDS,
     },
+  },
+  authEndpoints: {
+    signInEmail: parsed.data.AUTH_ENDPOINT_SIGN_IN_EMAIL,
+    signUpEmail: parsed.data.AUTH_ENDPOINT_SIGN_UP_EMAIL,
+    requestPasswordReset: parsed.data.AUTH_ENDPOINT_REQUEST_PASSWORD_RESET,
+    resetPassword: parsed.data.AUTH_ENDPOINT_RESET_PASSWORD,
   },
   enforceSecureTransport: parseBoolean(parsed.data.ENFORCE_SECURE_TRANSPORT, true),
   trustProxy: parseBoolean(parsed.data.TRUST_PROXY, false),

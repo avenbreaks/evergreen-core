@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
+import { backendEnv } from "../config/env";
 import { requireSecureTransportMiddleware } from "../middleware/require-secure-transport";
 
 type PasswordRouteDependencies = {
@@ -26,6 +27,43 @@ const resetPasswordBodySchema = z.object({
   token: z.string().trim().min(8).max(256),
   newPassword: z.string().min(8).max(256),
 });
+
+const parseTrustedOrigins = (): string[] => {
+  const configured = process.env.BETTER_AUTH_TRUSTED_ORIGINS;
+  if (!configured) {
+    return ["http://localhost:3000"];
+  }
+
+  return configured
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+};
+
+const trustedOrigins = parseTrustedOrigins().map((entry) => {
+  try {
+    return new URL(entry).origin.toLowerCase();
+  } catch {
+    return entry.toLowerCase();
+  }
+});
+
+const sanitizeRedirectTo = (redirectTo: string | undefined): string | undefined => {
+  if (!redirectTo) {
+    return undefined;
+  }
+
+  try {
+    const candidateOrigin = new URL(redirectTo).origin.toLowerCase();
+    if (trustedOrigins.includes(candidateOrigin)) {
+      return redirectTo;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+};
 
 const hasCompleteDependencies = (deps: Partial<PasswordRouteDependencies> | undefined): deps is PasswordRouteDependencies => {
   if (!deps) {
@@ -84,12 +122,20 @@ export const passwordRoutes: FastifyPluginAsync<PasswordRoutesOptions> = async (
 
   const handleForgotPassword = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const body = forgotPasswordBodySchema.parse(request.body ?? {});
+    const safeRedirectTo = sanitizeRedirectTo(body.redirectTo);
+    if (body.redirectTo && !safeRedirectTo) {
+      request.log.warn({ redirectTo: body.redirectTo }, "Dropped untrusted forgot-password redirect URL");
+    }
+
     await safeForwardPasswordRequest({
       deps,
       request,
       reply,
-      targetPath: "/api/auth/request-password-reset",
-      body,
+      targetPath: backendEnv.authEndpoints.requestPasswordReset,
+      body: {
+        email: body.email,
+        ...(safeRedirectTo ? { redirectTo: safeRedirectTo } : {}),
+      },
     });
   };
 
@@ -99,7 +145,7 @@ export const passwordRoutes: FastifyPluginAsync<PasswordRoutesOptions> = async (
       deps,
       request,
       reply,
-      targetPath: "/api/auth/reset-password",
+      targetPath: backendEnv.authEndpoints.resetPassword,
       body: {
         token: body.token,
         newPassword: body.newPassword,
