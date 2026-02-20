@@ -195,6 +195,7 @@ export function SessionDock({ compact = false }: SessionDockProps) {
                 <Input
                   id="signin-email"
                   type="email"
+                  autoComplete="email"
                   placeholder="you@example.com"
                   value={signinEmail}
                   onChange={(event) => setSigninEmail(event.target.value)}
@@ -206,6 +207,7 @@ export function SessionDock({ compact = false }: SessionDockProps) {
                 <Input
                   id="signin-password"
                   type="password"
+                  autoComplete="current-password"
                   placeholder="********"
                   value={signinPassword}
                   onChange={(event) => setSigninPassword(event.target.value)}
@@ -224,6 +226,7 @@ export function SessionDock({ compact = false }: SessionDockProps) {
                 <Input
                   id="signup-name"
                   type="text"
+                  autoComplete="name"
                   placeholder="Your name"
                   value={signupName}
                   onChange={(event) => setSignupName(event.target.value)}
@@ -235,6 +238,7 @@ export function SessionDock({ compact = false }: SessionDockProps) {
                 <Input
                   id="signup-email"
                   type="email"
+                  autoComplete="email"
                   placeholder="you@example.com"
                   value={signupEmail}
                   onChange={(event) => setSignupEmail(event.target.value)}
@@ -246,6 +250,7 @@ export function SessionDock({ compact = false }: SessionDockProps) {
                 <Input
                   id="signup-password"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="At least 8 chars"
                   value={signupPassword}
                   onChange={(event) => setSignupPassword(event.target.value)}

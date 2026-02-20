@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  fetchSession,
   fetchForumNotifications,
   markAllForumNotificationsRead,
   markForumNotificationRead,
@@ -69,6 +70,13 @@ export default function NotificationsPage() {
   const queryClient = useQueryClient();
   const [unreadOnly, setUnreadOnly] = useState(false);
 
+  const sessionQuery = useQuery({
+    queryKey: ["session"],
+    queryFn: fetchSession,
+  });
+
+  const isAuthenticated = Boolean(sessionQuery.data?.user?.id);
+
   const notificationsQuery = useQuery({
     queryKey: ["notifications", unreadOnly],
     queryFn: () =>
@@ -76,7 +84,9 @@ export default function NotificationsPage() {
         limit: 100,
         unreadOnly,
       }),
-    refetchInterval: 10_000,
+    enabled: isAuthenticated,
+    refetchInterval: isAuthenticated ? 10_000 : false,
+    retry: false,
   });
 
   const markReadMutation = useMutation({
@@ -93,7 +103,7 @@ export default function NotificationsPage() {
     },
   });
 
-  const notifications = notificationsQuery.data?.notifications ?? [];
+  const notifications = isAuthenticated ? notificationsQuery.data?.notifications ?? [] : [];
   const unreadCount = notifications.filter((notification) => !notification.readAt).length;
 
   return (
@@ -108,7 +118,11 @@ export default function NotificationsPage() {
               Notification Center
               <Badge className="border border-primary/30 bg-primary/10 text-primary">{unreadCount} unread</Badge>
             </h1>
-            <p className="text-sm text-muted-foreground">Auto-refresh every 10 seconds for near real-time updates.</p>
+            <p className="text-sm text-muted-foreground">
+              {isAuthenticated
+                ? "Auto-refresh every 10 seconds for near real-time updates."
+                : "Sign in to view your notifications."}
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -116,7 +130,7 @@ export default function NotificationsPage() {
               type="button"
               variant="outline"
               className="border-border bg-background hover:bg-secondary/60"
-              disabled={unreadCount === 0 || markAllReadMutation.isPending}
+              disabled={!isAuthenticated || unreadCount === 0 || markAllReadMutation.isPending}
               onClick={() => markAllReadMutation.mutate()}
             >
               {markAllReadMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}
@@ -126,6 +140,7 @@ export default function NotificationsPage() {
             <Button
               variant={unreadOnly ? "default" : "outline"}
               className={unreadOnly ? "bg-primary text-primary-foreground" : "border-border bg-background hover:bg-secondary/60"}
+              disabled={!isAuthenticated}
               onClick={() => setUnreadOnly((value) => !value)}
             >
               {unreadOnly ? <BellDot className="size-4" /> : <Bell className="size-4" />}
@@ -135,7 +150,15 @@ export default function NotificationsPage() {
         </div>
 
         <div className="space-y-3">
-          {notificationsQuery.isPending ? (
+          {!sessionQuery.isPending && !isAuthenticated ? (
+            <Card className="border-border bg-card/90">
+              <CardContent className="p-6 text-sm text-muted-foreground">
+                You need to sign in first. Use the <strong>Sign in</strong> button in the header to load your notification center.
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {isAuthenticated && notificationsQuery.isPending ? (
             <Card className="border-border bg-card/90">
               <CardContent className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
@@ -144,7 +167,7 @@ export default function NotificationsPage() {
             </Card>
           ) : null}
 
-          {notificationsQuery.isError ? (
+          {isAuthenticated && notificationsQuery.isError ? (
             <Card className="border-destructive/40 bg-destructive/10">
               <CardContent className="p-6 text-sm text-destructive">
                 {notificationsQuery.error instanceof Error ? notificationsQuery.error.message : "Failed to load notifications"}
@@ -152,13 +175,13 @@ export default function NotificationsPage() {
             </Card>
           ) : null}
 
-          {!notificationsQuery.isPending && !notificationsQuery.isError && notifications.length === 0 ? (
+          {isAuthenticated && !notificationsQuery.isPending && !notificationsQuery.isError && notifications.length === 0 ? (
             <Card className="border-border bg-card/90">
               <CardContent className="p-6 text-sm text-muted-foreground">No notifications in this filter yet.</CardContent>
             </Card>
           ) : null}
 
-          {notifications.map((notification) => {
+          {isAuthenticated && notifications.map((notification) => {
             const isUnread = !notification.readAt;
 
             return (
