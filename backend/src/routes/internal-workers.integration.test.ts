@@ -414,6 +414,169 @@ test("internal workers forum search requeue endpoint forwards filters", async (t
   });
 });
 
+test("internal workers forum search reindex endpoint orchestrates backfill and sync", async (t) => {
+  let receivedBackfillInput: { batchSize?: number; includePosts?: boolean; includeComments?: boolean } | null = null;
+  let receivedSyncInput: { limit?: number } | null = null;
+
+  const app = await buildInternalWorkersTestApp({
+    runForumSearchBackfillOnce: async (_app, input) => {
+      receivedBackfillInput = input ?? null;
+      return {
+        backfillRunId: "forum-search-backfill-run-2",
+        skipped: false,
+      };
+    },
+    runForumSearchSyncOnce: async (_app, input) => {
+      receivedSyncInput = input ?? null;
+      return {
+        syncRunId: "forum-search-sync-run-2",
+        skipped: false,
+      };
+    },
+    getForumSearchSyncQueueStatusSummary: async () => ({
+      pending: 1,
+      processing: 0,
+      failed: 0,
+      deadLetter: 0,
+      queueTotal: 1,
+      activeTotal: 1,
+      retryReady: 0,
+      oldestActiveCreatedAt: new Date(),
+      oldestDeadLetterCreatedAt: null,
+      generatedAt: new Date(),
+    }),
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/reindex",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {
+      batchSize: 20,
+      includePosts: true,
+      includeComments: false,
+      syncLimit: 10,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().worker, "forum-search-reindex");
+  assert.deepEqual(receivedBackfillInput, {
+    batchSize: 20,
+    includePosts: true,
+    includeComments: false,
+  });
+  assert.deepEqual(receivedSyncInput, {
+    limit: 10,
+  });
+});
+
+test("internal workers forum search requeue endpoint is rate limited", async (t) => {
+  let calls = 0;
+
+  const app = await buildInternalWorkersTestApp({
+    requeueForumSearchDeadLetterEntries: async () => {
+      calls += 1;
+      return {
+        selected: 0,
+        requeued: 0,
+        limit: 1,
+        targetType: null,
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const first = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/requeue-dead-letter",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {},
+  });
+
+  const second = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/requeue-dead-letter",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {},
+  });
+
+  assert.equal(first.statusCode, 200);
+  assert.equal(second.statusCode, 429);
+  assert.equal(second.json().code, "INTERNAL_OPS_RATE_LIMITED");
+  assert.equal(calls, 1);
+});
+
+test("internal workers forum search reindex endpoint is rate limited", async (t) => {
+  let backfillCalls = 0;
+
+  const app = await buildInternalWorkersTestApp({
+    runForumSearchBackfillOnce: async () => {
+      backfillCalls += 1;
+      return {
+        backfillRunId: "forum-search-backfill-run-3",
+        skipped: false,
+      };
+    },
+    runForumSearchSyncOnce: async () => ({
+      syncRunId: "forum-search-sync-run-3",
+      skipped: false,
+    }),
+    getForumSearchSyncQueueStatusSummary: async () => ({
+      pending: 0,
+      processing: 0,
+      failed: 0,
+      deadLetter: 0,
+      queueTotal: 0,
+      activeTotal: 0,
+      retryReady: 0,
+      oldestActiveCreatedAt: null,
+      oldestDeadLetterCreatedAt: null,
+      generatedAt: new Date(),
+    }),
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const first = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/reindex",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {},
+  });
+
+  const second = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/reindex",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {},
+  });
+
+  assert.equal(first.statusCode, 200);
+  assert.equal(second.statusCode, 429);
+  assert.equal(second.json().code, "INTERNAL_OPS_RATE_LIMITED");
+  assert.equal(backfillCalls, 1);
+});
+
 test("internal workers route returns worker status summary", async (t) => {
   const app = await buildInternalWorkersTestApp({
     getInternalWorkerStatusSummary: async () => ({

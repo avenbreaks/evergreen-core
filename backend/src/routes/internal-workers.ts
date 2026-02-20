@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
+import { createInternalOpsThrottleMiddleware } from "../middleware/internal-ops-throttle";
 import { requireSecureTransportMiddleware } from "../middleware/require-secure-transport";
 import type {
   ForumSearchSyncQueueStatusSummary,
@@ -65,11 +66,21 @@ const runForumSearchBackfillBodySchema = z.object({
   includeComments: z.boolean().optional(),
 });
 
+const runForumSearchReindexBodySchema = z.object({
+  batchSize: z.coerce.number().int().positive().max(1000).optional(),
+  includePosts: z.boolean().optional(),
+  includeComments: z.boolean().optional(),
+  syncLimit: z.coerce.number().int().positive().max(500).optional(),
+});
+
 const requeueForumSearchDeadLetterBodySchema = z.object({
   limit: z.coerce.number().int().positive().max(1000).optional(),
   targetType: z.enum(["post", "comment"]).optional(),
   targetIds: z.array(z.string().uuid()).max(1000).optional(),
 });
+
+const FORUM_SEARCH_REINDEX_COOLDOWN_MS = 30_000;
+const FORUM_SEARCH_REQUEUE_COOLDOWN_MS = 5_000;
 
 const hasCompleteDependencies = (
   deps: Partial<InternalWorkersRouteDependencies> | undefined
@@ -139,6 +150,16 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
         ...(await loadDefaultDependencies()),
         ...(options.deps ?? {}),
       };
+
+  const forumSearchReindexThrottle = createInternalOpsThrottleMiddleware({
+    operation: "forum-search-reindex",
+    cooldownMs: FORUM_SEARCH_REINDEX_COOLDOWN_MS,
+  });
+
+  const forumSearchRequeueThrottle = createInternalOpsThrottleMiddleware({
+    operation: "forum-search-requeue-dead-letter",
+    cooldownMs: FORUM_SEARCH_REQUEUE_COOLDOWN_MS,
+  });
 
   app.post(
     "/api/internal/workers/reconciliation/run",
@@ -280,6 +301,38 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
     }
   );
 
+  app.post(
+    "/api/internal/workers/forum-search/reindex",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware, forumSearchReindexThrottle],
+    },
+    async (request) => {
+      const body = runForumSearchReindexBodySchema.parse(request.body ?? {});
+
+      const backfill = await deps.runForumSearchBackfillOnce(app, {
+        batchSize: body.batchSize,
+        includePosts: body.includePosts,
+        includeComments: body.includeComments,
+      });
+
+      const sync = await deps.runForumSearchSyncOnce(app, {
+        limit: body.syncLimit,
+      });
+
+      const queue = await deps.getForumSearchSyncQueueStatusSummary();
+
+      return {
+        acknowledged: true,
+        worker: "forum-search-reindex",
+        run: {
+          backfill,
+          sync,
+          queue,
+        },
+      };
+    }
+  );
+
   app.get(
     "/api/internal/workers/forum-search/status",
     {
@@ -324,7 +377,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   app.post(
     "/api/internal/workers/forum-search/requeue-dead-letter",
     {
-      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware, forumSearchRequeueThrottle],
     },
     async (request) => {
       const body = requeueForumSearchDeadLetterBodySchema.parse(request.body ?? {});
