@@ -2,7 +2,12 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 
 import { requireSecureTransportMiddleware } from "../middleware/require-secure-transport";
+import type {
+  ForumSearchSyncQueueStatusSummary,
+  RequeueForumSearchDeadLetterResult,
+} from "../services/forum-search-sync-queue";
 import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
+import { getOpsMetricsSnapshot } from "../services/ops-metrics";
 
 type InternalWorkersRouteDependencies = {
   runEnsReconciliationOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number; dryRun?: boolean }) => Promise<unknown>;
@@ -10,6 +15,12 @@ type InternalWorkersRouteDependencies = {
   runEnsIdentitySyncOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number }) => Promise<unknown>;
   runEnsWebhookRetryOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
   runForumSearchSyncOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
+  getForumSearchSyncQueueStatusSummary: () => Promise<ForumSearchSyncQueueStatusSummary>;
+  requeueForumSearchDeadLetterEntries: (input?: {
+    limit?: number;
+    targetType?: "post" | "comment";
+    targetIds?: string[];
+  }) => Promise<RequeueForumSearchDeadLetterResult>;
   runForumSearchBackfillOnce: (
     app: unknown,
     input?: { batchSize?: number; includePosts?: boolean; includeComments?: boolean }
@@ -20,6 +31,7 @@ type InternalWorkersRouteDependencies = {
     deadLetterRetentionDays?: number;
   }) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
+  getOpsMetricsSnapshot: typeof getOpsMetricsSnapshot;
 };
 
 type InternalWorkersRoutesOptions = {
@@ -53,6 +65,12 @@ const runForumSearchBackfillBodySchema = z.object({
   includeComments: z.boolean().optional(),
 });
 
+const requeueForumSearchDeadLetterBodySchema = z.object({
+  limit: z.coerce.number().int().positive().max(1000).optional(),
+  targetType: z.enum(["post", "comment"]).optional(),
+  targetIds: z.array(z.string().uuid()).max(1000).optional(),
+});
+
 const hasCompleteDependencies = (
   deps: Partial<InternalWorkersRouteDependencies> | undefined
 ): deps is InternalWorkersRouteDependencies => {
@@ -66,9 +84,12 @@ const hasCompleteDependencies = (
     typeof deps.runEnsIdentitySyncOnce === "function" &&
     typeof deps.runEnsWebhookRetryOnce === "function" &&
     typeof deps.runForumSearchSyncOnce === "function" &&
+    typeof deps.getForumSearchSyncQueueStatusSummary === "function" &&
+    typeof deps.requeueForumSearchDeadLetterEntries === "function" &&
     typeof deps.runForumSearchBackfillOnce === "function" &&
     typeof deps.runOpsRetentionOnce === "function" &&
-    typeof deps.getInternalWorkerStatusSummary === "function"
+    typeof deps.getInternalWorkerStatusSummary === "function" &&
+    typeof deps.getOpsMetricsSnapshot === "function"
   );
 };
 
@@ -79,6 +100,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     identitySyncJob,
     webhookRetryJob,
     forumSearchSyncJob,
+    forumSearchSyncQueueService,
     forumSearchBackfillJob,
     opsRetentionJob,
     workerStatusService,
@@ -88,6 +110,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     import("../jobs/ens-identity-sync"),
     import("../jobs/ens-webhook-retry"),
     import("../jobs/forum-search-sync"),
+    import("../services/forum-search-sync-queue"),
     import("../jobs/forum-search-backfill"),
     import("../jobs/ops-retention"),
     import("../services/internal-worker-status"),
@@ -99,10 +122,13 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     runEnsIdentitySyncOnce: identitySyncJob.runEnsIdentitySyncOnce as InternalWorkersRouteDependencies["runEnsIdentitySyncOnce"],
     runEnsWebhookRetryOnce: webhookRetryJob.runEnsWebhookRetryOnce as InternalWorkersRouteDependencies["runEnsWebhookRetryOnce"],
     runForumSearchSyncOnce: forumSearchSyncJob.runForumSearchSyncOnce as InternalWorkersRouteDependencies["runForumSearchSyncOnce"],
+    getForumSearchSyncQueueStatusSummary: forumSearchSyncQueueService.getForumSearchSyncQueueStatusSummary,
+    requeueForumSearchDeadLetterEntries: forumSearchSyncQueueService.requeueForumSearchDeadLetterEntries,
     runForumSearchBackfillOnce:
       forumSearchBackfillJob.runForumSearchBackfillOnce as InternalWorkersRouteDependencies["runForumSearchBackfillOnce"],
     runOpsRetentionOnce: opsRetentionJob.runOpsRetentionOnce as InternalWorkersRouteDependencies["runOpsRetentionOnce"],
     getInternalWorkerStatusSummary: workerStatusService.getInternalWorkerStatusSummary,
+    getOpsMetricsSnapshot,
   };
 };
 
@@ -249,6 +275,68 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
       return {
         acknowledged: true,
         worker: "forum-search-backfill",
+        run,
+      };
+    }
+  );
+
+  app.get(
+    "/api/internal/workers/forum-search/status",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
+    },
+    async () => {
+      const queue = await deps.getForumSearchSyncQueueStatusSummary();
+      const runtimeMetrics = deps.getOpsMetricsSnapshot();
+
+      const nowMs = Date.now();
+      const oldestActiveAgeSeconds = queue.oldestActiveCreatedAt
+        ? Math.max(0, Math.floor((nowMs - queue.oldestActiveCreatedAt.getTime()) / 1000))
+        : null;
+      const oldestDeadLetterAgeSeconds = queue.oldestDeadLetterCreatedAt
+        ? Math.max(0, Math.floor((nowMs - queue.oldestDeadLetterCreatedAt.getTime()) / 1000))
+        : null;
+
+      return {
+        acknowledged: true,
+        worker: "forum-search",
+        status: {
+          queue: {
+            ...queue,
+            oldestActiveAgeSeconds,
+            oldestDeadLetterAgeSeconds,
+          },
+          runtime: {
+            runTotals: {
+              sync: runtimeMetrics.workerRunTotals["forum-search-sync"],
+              backfill: runtimeMetrics.workerRunTotals["forum-search-backfill"],
+            },
+            skipStreak: {
+              sync: runtimeMetrics.workerSkipStreak["forum-search-sync"],
+              backfill: runtimeMetrics.workerSkipStreak["forum-search-backfill"],
+            },
+          },
+        },
+      };
+    }
+  );
+
+  app.post(
+    "/api/internal/workers/forum-search/requeue-dead-letter",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
+    },
+    async (request) => {
+      const body = requeueForumSearchDeadLetterBodySchema.parse(request.body ?? {});
+      const run = await deps.requeueForumSearchDeadLetterEntries({
+        limit: body.limit,
+        targetType: body.targetType,
+        targetIds: body.targetIds,
+      });
+
+      return {
+        acknowledged: true,
+        worker: "forum-search-dead-letter-requeue",
         run,
       };
     }

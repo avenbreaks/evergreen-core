@@ -64,6 +64,8 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/internal/workers/webhook-retry/run` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/forum-search-sync/run` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/forum-search-backfill/run` (auth via `x-internal-secret`)
+  - `GET /api/internal/workers/forum-search/status` (auth via `x-internal-secret`)
+  - `POST /api/internal/workers/forum-search/requeue-dead-letter` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/ops-retention/run` (auth via `x-internal-secret`)
   - `GET /api/internal/workers/status` (auth via `x-internal-secret`)
 - Metrics:
@@ -92,6 +94,8 @@ Backend API untuk Evergreen Devparty dengan fokus:
 - Sinkronisasi index dilakukan async lewat queue DB (`forum_search_sync_queue`) dan worker internal.
 - Worker bisa dijalankan manual via `POST /api/internal/workers/forum-search-sync/run`.
 - Backfill bootstrap full content ke queue bisa dijalankan via `POST /api/internal/workers/forum-search-backfill/run`.
+- Status queue + runtime sync/backfill tersedia via `GET /api/internal/workers/forum-search/status`.
+- Dead-letter queue bisa direqueue via `POST /api/internal/workers/forum-search/requeue-dead-letter`.
 - Bila Meilisearch tidak dikonfigurasi/bermasalah, search otomatis fallback ke query DB.
 
 ## ENS webhook internal contract

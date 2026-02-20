@@ -26,7 +26,7 @@ export type OpsMetricAlert = {
 
 type OpsMetricAlertHandler = (alert: OpsMetricAlert) => void;
 
-type OpsMetricsSnapshot = {
+export type OpsMetricsSnapshot = {
   webhookProcessedTotal: number;
   webhookFailedTotal: number;
   webhookDeadLetterTotal: number;

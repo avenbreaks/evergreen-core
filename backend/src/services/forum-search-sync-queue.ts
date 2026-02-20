@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
@@ -19,7 +19,42 @@ type EnqueueForumSearchSyncInput = {
   operation?: ForumSearchSyncOperation;
 };
 
+type RequeueForumSearchDeadLetterInput = {
+  limit?: number;
+  targetType?: ForumSearchSyncTargetType;
+  targetIds?: string[];
+};
+
+export type ForumSearchSyncQueueStatusSummary = {
+  pending: number;
+  processing: number;
+  failed: number;
+  deadLetter: number;
+  queueTotal: number;
+  activeTotal: number;
+  retryReady: number;
+  oldestActiveCreatedAt: Date | null;
+  oldestDeadLetterCreatedAt: Date | null;
+  generatedAt: Date;
+};
+
+export type RequeueForumSearchDeadLetterResult = {
+  selected: number;
+  requeued: number;
+  limit: number;
+  targetType: ForumSearchSyncTargetType | null;
+};
+
 const RETRYABLE_STATUSES = ["pending", "failed"] as const;
+const QUEUE_STATUSES = ["pending", "processing", "failed", "dead_letter"] as const;
+
+const clampRequeueLimit = (value: number | undefined): number => {
+  if (!value || !Number.isInteger(value)) {
+    return backendEnv.forumSearchSyncBatchLimit;
+  }
+
+  return Math.max(1, Math.min(value, 1000));
+};
 
 const clampBatchLimit = (value: number | undefined): number => {
   if (!value || !Number.isInteger(value)) {
@@ -184,5 +219,120 @@ export const markForumSearchSyncFailed = async (input: {
   return {
     status: "failed",
     attemptCount: nextAttempt,
+  };
+};
+
+export const getForumSearchSyncQueueStatusSummary = async (): Promise<ForumSearchSyncQueueStatusSummary> => {
+  const now = new Date();
+
+  const [statusRows, retryReadyRows, oldestActiveRows, oldestDeadLetterRows] = await Promise.all([
+    authDb
+      .select({
+        status: schema.forumSearchSyncQueue.status,
+        total: count(),
+      })
+      .from(schema.forumSearchSyncQueue)
+      .where(inArray(schema.forumSearchSyncQueue.status, QUEUE_STATUSES))
+      .groupBy(schema.forumSearchSyncQueue.status),
+    authDb
+      .select({
+        total: count(),
+      })
+      .from(schema.forumSearchSyncQueue)
+      .where(
+        and(
+          eq(schema.forumSearchSyncQueue.status, "failed"),
+          or(isNull(schema.forumSearchSyncQueue.nextRetryAt), lte(schema.forumSearchSyncQueue.nextRetryAt, now))
+        )
+      ),
+    authDb
+      .select({ createdAt: schema.forumSearchSyncQueue.createdAt })
+      .from(schema.forumSearchSyncQueue)
+      .where(inArray(schema.forumSearchSyncQueue.status, ["pending", "processing", "failed"]))
+      .orderBy(asc(schema.forumSearchSyncQueue.createdAt))
+      .limit(1),
+    authDb
+      .select({ createdAt: schema.forumSearchSyncQueue.createdAt })
+      .from(schema.forumSearchSyncQueue)
+      .where(eq(schema.forumSearchSyncQueue.status, "dead_letter"))
+      .orderBy(asc(schema.forumSearchSyncQueue.createdAt))
+      .limit(1),
+  ]);
+
+  const statusMap: Record<(typeof QUEUE_STATUSES)[number], number> = {
+    pending: 0,
+    processing: 0,
+    failed: 0,
+    dead_letter: 0,
+  };
+
+  for (const row of statusRows) {
+    statusMap[row.status] = row.total;
+  }
+
+  const activeTotal = statusMap.pending + statusMap.processing + statusMap.failed;
+
+  return {
+    pending: statusMap.pending,
+    processing: statusMap.processing,
+    failed: statusMap.failed,
+    deadLetter: statusMap.dead_letter,
+    queueTotal: activeTotal + statusMap.dead_letter,
+    activeTotal,
+    retryReady: retryReadyRows[0]?.total ?? 0,
+    oldestActiveCreatedAt: oldestActiveRows[0]?.createdAt ?? null,
+    oldestDeadLetterCreatedAt: oldestDeadLetterRows[0]?.createdAt ?? null,
+    generatedAt: now,
+  };
+};
+
+export const requeueForumSearchDeadLetterEntries = async (
+  input: RequeueForumSearchDeadLetterInput = {}
+): Promise<RequeueForumSearchDeadLetterResult> => {
+  const limit = clampRequeueLimit(input.limit);
+  const targetIds = [...new Set((input.targetIds ?? []).map((value) => value.trim()).filter(Boolean))];
+  const now = new Date();
+
+  const selected = await authDb
+    .select({ id: schema.forumSearchSyncQueue.id })
+    .from(schema.forumSearchSyncQueue)
+    .where(
+      and(
+        eq(schema.forumSearchSyncQueue.status, "dead_letter"),
+        input.targetType ? eq(schema.forumSearchSyncQueue.targetType, input.targetType) : undefined,
+        targetIds.length > 0 ? inArray(schema.forumSearchSyncQueue.targetId, targetIds) : undefined
+      )
+    )
+    .orderBy(asc(schema.forumSearchSyncQueue.updatedAt))
+    .limit(limit);
+
+  if (selected.length === 0) {
+    return {
+      selected: 0,
+      requeued: 0,
+      limit,
+      targetType: input.targetType ?? null,
+    };
+  }
+
+  const selectedIds = selected.map((row) => row.id);
+  await authDb
+    .update(schema.forumSearchSyncQueue)
+    .set({
+      status: "pending",
+      attemptCount: 0,
+      nextRetryAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      processedAt: null,
+      updatedAt: now,
+    })
+    .where(inArray(schema.forumSearchSyncQueue.id, selectedIds));
+
+  return {
+    selected: selected.length,
+    requeued: selected.length,
+    limit,
+    targetType: input.targetType ?? null,
   };
 };

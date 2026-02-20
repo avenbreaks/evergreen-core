@@ -4,6 +4,11 @@ import test from "node:test";
 import Fastify from "fastify";
 
 import { HttpError } from "../lib/http-error";
+import type { OpsMetricsSnapshot } from "../services/ops-metrics";
+import type {
+  ForumSearchSyncQueueStatusSummary,
+  RequeueForumSearchDeadLetterResult,
+} from "../services/forum-search-sync-queue";
 
 const INTERNAL_SECRET = "test-internal-worker-secret";
 
@@ -26,6 +31,12 @@ type InternalWorkersDeps = {
   runEnsIdentitySyncOnce: (_app: unknown, input?: { limit?: number; staleMinutes?: number }) => Promise<unknown>;
   runEnsWebhookRetryOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
   runForumSearchSyncOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
+  getForumSearchSyncQueueStatusSummary: () => Promise<ForumSearchSyncQueueStatusSummary>;
+  requeueForumSearchDeadLetterEntries: (input?: {
+    limit?: number;
+    targetType?: "post" | "comment";
+    targetIds?: string[];
+  }) => Promise<RequeueForumSearchDeadLetterResult>;
   runForumSearchBackfillOnce: (
     _app: unknown,
     input?: { batchSize?: number; includePosts?: boolean; includeComments?: boolean }
@@ -35,6 +46,7 @@ type InternalWorkersDeps = {
     input?: { batchLimit?: number; processedRetentionDays?: number; deadLetterRetentionDays?: number }
   ) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
+  getOpsMetricsSnapshot: () => OpsMetricsSnapshot;
 };
 
 const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorkersDeps => {
@@ -48,9 +60,14 @@ const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorker
     runEnsIdentitySyncOnce: unexpected("runEnsIdentitySyncOnce"),
     runEnsWebhookRetryOnce: unexpected("runEnsWebhookRetryOnce"),
     runForumSearchSyncOnce: unexpected("runForumSearchSyncOnce"),
+    getForumSearchSyncQueueStatusSummary: unexpected("getForumSearchSyncQueueStatusSummary"),
+    requeueForumSearchDeadLetterEntries: unexpected("requeueForumSearchDeadLetterEntries"),
     runForumSearchBackfillOnce: unexpected("runForumSearchBackfillOnce"),
     runOpsRetentionOnce: unexpected("runOpsRetentionOnce"),
     getInternalWorkerStatusSummary: unexpected("getInternalWorkerStatusSummary"),
+    getOpsMetricsSnapshot: () => {
+      throw new Error("Unexpected dependency call: getOpsMetricsSnapshot");
+    },
     ...overrides,
   };
 };
@@ -80,6 +97,31 @@ const buildInternalWorkersTestApp = async (depsOverrides: Partial<InternalWorker
 
   return app;
 };
+
+const createOpsMetricsSnapshot = (): OpsMetricsSnapshot => ({
+  webhookProcessedTotal: 0,
+  webhookFailedTotal: 0,
+  webhookDeadLetterTotal: 0,
+  webhookRetryDepthMax: 0,
+  workerRunTotals: {
+    reconciliation: { completed: 0, skipped: 0, failed: 0 },
+    "tx-watcher": { completed: 0, skipped: 0, failed: 0 },
+    "webhook-retry": { completed: 0, skipped: 0, failed: 0 },
+    "ops-retention": { completed: 0, skipped: 0, failed: 0 },
+    "identity-sync": { completed: 0, skipped: 0, failed: 0 },
+    "forum-search-sync": { completed: 0, skipped: 0, failed: 0 },
+    "forum-search-backfill": { completed: 0, skipped: 0, failed: 0 },
+  },
+  workerSkipStreak: {
+    reconciliation: 0,
+    "tx-watcher": 0,
+    "webhook-retry": 0,
+    "ops-retention": 0,
+    "identity-sync": 0,
+    "forum-search-sync": 0,
+    "forum-search-backfill": 0,
+  },
+});
 
 test("internal workers route rejects invalid secret", async (t) => {
   const app = await buildInternalWorkersTestApp();
@@ -280,6 +322,96 @@ test("internal workers route triggers tx watcher, identity sync, webhook retry, 
   assert.equal(forumSearchSyncCalls, 1);
   assert.equal(forumSearchBackfillCalls, 1);
   assert.equal(opsRetentionCalls, 1);
+});
+
+test("internal workers forum search status endpoint returns queue and runtime summary", async (t) => {
+  const app = await buildInternalWorkersTestApp({
+    getForumSearchSyncQueueStatusSummary: async () => ({
+      pending: 10,
+      processing: 2,
+      failed: 3,
+      deadLetter: 4,
+      queueTotal: 19,
+      activeTotal: 15,
+      retryReady: 2,
+      oldestActiveCreatedAt: new Date(Date.now() - 120_000),
+      oldestDeadLetterCreatedAt: new Date(Date.now() - 240_000),
+      generatedAt: new Date(),
+    }),
+    getOpsMetricsSnapshot: () => {
+      const snapshot = createOpsMetricsSnapshot();
+      snapshot.workerRunTotals["forum-search-sync"] = { completed: 7, skipped: 1, failed: 2 };
+      snapshot.workerRunTotals["forum-search-backfill"] = { completed: 3, skipped: 0, failed: 1 };
+      snapshot.workerSkipStreak["forum-search-sync"] = 1;
+      snapshot.workerSkipStreak["forum-search-backfill"] = 0;
+      return snapshot;
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/internal/workers/forum-search/status",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().worker, "forum-search");
+  assert.equal(response.json().status.queue.retryReady, 2);
+  assert.equal(response.json().status.runtime.runTotals.sync.completed, 7);
+  assert.equal(response.json().status.runtime.runTotals.backfill.failed, 1);
+});
+
+test("internal workers forum search requeue endpoint forwards filters", async (t) => {
+  let receivedInput: { limit?: number; targetType?: "post" | "comment"; targetIds?: string[] } | null = null;
+
+  const app = await buildInternalWorkersTestApp({
+    requeueForumSearchDeadLetterEntries: async (input) => {
+      receivedInput = input ?? null;
+      return {
+        selected: 2,
+        requeued: 2,
+        limit: input?.limit ?? 0,
+        targetType: input?.targetType ?? null,
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/requeue-dead-letter",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {
+      limit: 25,
+      targetType: "comment",
+      targetIds: [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+      ],
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().worker, "forum-search-dead-letter-requeue");
+  assert.deepEqual(receivedInput, {
+    limit: 25,
+    targetType: "comment",
+    targetIds: [
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+    ],
+  });
 });
 
 test("internal workers route returns worker status summary", async (t) => {
