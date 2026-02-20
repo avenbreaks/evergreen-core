@@ -66,6 +66,8 @@ test("runOpsRetention deletes old processed and dead letter webhook events", asy
   const recentProcessedId = randomUUID();
   const oldDeadLetterId = randomUUID();
   const recentDeadLetterId = randomUUID();
+  const oldAuditEventId = randomUUID();
+  const recentAuditEventId = randomUUID();
   const now = new Date();
   const oldTimestamp = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
   const recentTimestamp = new Date(now.getTime() - 2 * 60 * 60 * 1000);
@@ -74,6 +76,9 @@ test("runOpsRetention deletes old processed and dead letter webhook events", asy
     await authDb
       .delete(schema.ensWebhookEvents)
       .where(inArray(schema.ensWebhookEvents.id, [oldProcessedId, recentProcessedId, oldDeadLetterId, recentDeadLetterId]));
+    await authDb
+      .delete(schema.internalOpsAuditEvents)
+      .where(inArray(schema.internalOpsAuditEvents.id, [oldAuditEventId, recentAuditEventId]));
     await authDb.delete(schema.ensPurchaseIntents).where(eq(schema.ensPurchaseIntents.id, intentId));
     await authDb.delete(schema.users).where(eq(schema.users.id, userId));
   });
@@ -141,14 +146,41 @@ test("runOpsRetention deletes old processed and dead letter webhook events", asy
     },
   ]);
 
+  await authDb.insert(schema.internalOpsAuditEvents).values([
+    {
+      id: oldAuditEventId,
+      operation: "forum-search-requeue-dead-letter",
+      outcome: "completed",
+      actor: "integration-test",
+      requestMethod: "POST",
+      requestPath: "/api/internal/workers/forum-search/requeue-dead-letter",
+      payload: { dryRun: false },
+      result: { requeued: 1 },
+      createdAt: oldTimestamp,
+    },
+    {
+      id: recentAuditEventId,
+      operation: "forum-search-cancel-queue",
+      outcome: "completed",
+      actor: "integration-test",
+      requestMethod: "POST",
+      requestPath: "/api/internal/workers/forum-search/cancel-queue",
+      payload: { dryRun: true },
+      result: { wouldCancel: 1 },
+      createdAt: recentTimestamp,
+    },
+  ]);
+
   const result = await runOpsRetention({
     batchLimit: 100,
     processedRetentionDays: 7,
     deadLetterRetentionDays: 7,
+    internalAuditRetentionDays: 7,
   });
 
   assert.equal(result.deletedProcessed, 1);
   assert.equal(result.deletedDeadLetter, 1);
+  assert.equal(result.deletedAuditEvents, 1);
 
   const remainingRows = await authDb
     .select({ id: schema.ensWebhookEvents.id })
@@ -160,4 +192,13 @@ test("runOpsRetention deletes old processed and dead letter webhook events", asy
   assert.equal(remainingIds.has(oldDeadLetterId), false);
   assert.equal(remainingIds.has(recentProcessedId), true);
   assert.equal(remainingIds.has(recentDeadLetterId), true);
+
+  const remainingAuditRows = await authDb
+    .select({ id: schema.internalOpsAuditEvents.id })
+    .from(schema.internalOpsAuditEvents)
+    .where(inArray(schema.internalOpsAuditEvents.id, [oldAuditEventId, recentAuditEventId]));
+
+  const remainingAuditIds = new Set(remainingAuditRows.map((row) => row.id));
+  assert.equal(remainingAuditIds.has(oldAuditEventId), false);
+  assert.equal(remainingAuditIds.has(recentAuditEventId), true);
 });

@@ -47,6 +47,7 @@ type InternalWorkersRouteDependencies = {
     batchLimit?: number;
     processedRetentionDays?: number;
     deadLetterRetentionDays?: number;
+    internalAuditRetentionDays?: number;
   }) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
   getForumMvpStatusSummary: () => Promise<ForumMvpStatusSummary>;
@@ -79,6 +80,7 @@ const runOpsRetentionBodySchema = z.object({
   batchLimit: z.coerce.number().int().positive().max(5000).optional(),
   processedRetentionDays: z.coerce.number().int().positive().max(365).optional(),
   deadLetterRetentionDays: z.coerce.number().int().positive().max(365).optional(),
+  internalAuditRetentionDays: z.coerce.number().int().positive().max(3650).optional(),
 });
 
 const runForumSearchBackfillBodySchema = z.object({
@@ -113,9 +115,24 @@ const cancelForumSearchQueueBodySchema = z.object({
   dryRun: z.boolean().optional(),
 });
 
-const forumSearchAuditQuerySchema = z.object({
-  limit: z.coerce.number().int().positive().max(1000).optional(),
-});
+const forumSearchAuditQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().positive().max(1000).optional(),
+    outcome: z.enum(["completed", "failed"]).optional(),
+    actor: z.string().max(120).optional(),
+    createdAfter: z.coerce.date().optional(),
+    createdBefore: z.coerce.date().optional(),
+  })
+  .refine(
+    (value) =>
+      value.createdAfter === undefined ||
+      value.createdBefore === undefined ||
+      value.createdAfter.getTime() <= value.createdBefore.getTime(),
+    {
+      message: "createdAfter must be before or equal to createdBefore",
+      path: ["createdAfter"],
+    }
+  );
 
 const FORUM_SEARCH_REINDEX_COOLDOWN_MS = 30_000;
 const FORUM_SEARCH_REQUEUE_COOLDOWN_MS = 5_000;
@@ -378,6 +395,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
         batchLimit: body.batchLimit,
         processedRetentionDays: body.processedRetentionDays,
         deadLetterRetentionDays: body.deadLetterRetentionDays,
+        internalAuditRetentionDays: body.internalAuditRetentionDays,
       });
 
       return {
@@ -730,6 +748,10 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
       const query = forumSearchAuditQuerySchema.parse(request.query ?? {});
       const events = await deps.listInternalOpsAuditEvents({
         limit: query.limit,
+        outcomes: query.outcome ? [query.outcome] : undefined,
+        actor: query.actor,
+        createdAfter: query.createdAfter,
+        createdBefore: query.createdBefore,
         operations: [
           "forum-search-reindex",
           "forum-search-pause",

@@ -72,6 +72,7 @@ const envSchema = z.object({
   OPS_RETENTION_BATCH_LIMIT: z.coerce.number().int().positive().default(500),
   OPS_WEBHOOK_PROCESSED_RETENTION_DAYS: z.coerce.number().int().positive().default(7),
   OPS_WEBHOOK_DEAD_LETTER_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+  OPS_INTERNAL_AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   FORUM_SEARCH_SYNC_INTERVAL_MS: z.coerce.number().int().min(0).default(0),
   FORUM_SEARCH_SYNC_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
   FORUM_SEARCH_SYNC_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
@@ -140,6 +141,7 @@ export type BackendEnv = {
   opsRetentionBatchLimit: number;
   opsWebhookProcessedRetentionDays: number;
   opsWebhookDeadLetterRetentionDays: number;
+  opsInternalAuditRetentionDays: number;
   forumSearchSyncIntervalMs: number;
   forumSearchSyncBatchLimit: number;
   forumSearchSyncMaxAttempts: number;
@@ -185,6 +187,7 @@ export const backendEnv: BackendEnv = {
   opsRetentionBatchLimit: parsed.data.OPS_RETENTION_BATCH_LIMIT,
   opsWebhookProcessedRetentionDays: parsed.data.OPS_WEBHOOK_PROCESSED_RETENTION_DAYS,
   opsWebhookDeadLetterRetentionDays: parsed.data.OPS_WEBHOOK_DEAD_LETTER_RETENTION_DAYS,
+  opsInternalAuditRetentionDays: parsed.data.OPS_INTERNAL_AUDIT_RETENTION_DAYS,
   forumSearchSyncIntervalMs: parsed.data.FORUM_SEARCH_SYNC_INTERVAL_MS,
   forumSearchSyncBatchLimit: parsed.data.FORUM_SEARCH_SYNC_BATCH_LIMIT,
   forumSearchSyncMaxAttempts: parsed.data.FORUM_SEARCH_SYNC_MAX_ATTEMPTS,

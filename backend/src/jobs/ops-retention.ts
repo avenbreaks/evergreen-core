@@ -11,6 +11,7 @@ type RunOpsRetentionOnceInput = {
   batchLimit?: number;
   processedRetentionDays?: number;
   deadLetterRetentionDays?: number;
+  internalAuditRetentionDays?: number;
 };
 
 export const runOpsRetentionOnce = async (app: FastifyInstance, input: RunOpsRetentionOnceInput = {}) => {
@@ -23,6 +24,7 @@ export const runOpsRetentionOnce = async (app: FastifyInstance, input: RunOpsRet
         batchLimit: input.batchLimit ?? backendEnv.opsRetentionBatchLimit,
         processedRetentionDays: input.processedRetentionDays ?? backendEnv.opsWebhookProcessedRetentionDays,
         deadLetterRetentionDays: input.deadLetterRetentionDays ?? backendEnv.opsWebhookDeadLetterRetentionDays,
+        internalAuditRetentionDays: input.internalAuditRetentionDays ?? backendEnv.opsInternalAuditRetentionDays,
       });
 
       return result;
@@ -48,6 +50,7 @@ export const runOpsRetentionOnce = async (app: FastifyInstance, input: RunOpsRet
         scanned: result.scanned,
         deletedProcessed: result.deletedProcessed,
         deletedDeadLetter: result.deletedDeadLetter,
+        deletedAuditEvents: result.deletedAuditEvents,
       },
       "Ops retention run completed"
     );

@@ -106,7 +106,9 @@ Backend API untuk Evergreen Devparty dengan fokus:
 - Dead-letter queue bisa direqueue via `POST /api/internal/workers/forum-search/requeue-dead-letter`.
 - Cancel dan requeue mendukung mode simulasi lewat `dryRun=true`.
 - Audit trail aksi internal tersedia via `GET /api/internal/workers/forum-search/audit`.
+- Audit endpoint mendukung filter query `outcome`, `actor`, `createdAfter`, `createdBefore`, `limit`.
 - Endpoint reindex, requeue, dan cancel-queue punya cooldown internal untuk mencegah trigger burst.
+- Worker `ops-retention` juga membersihkan audit event lama berdasarkan `OPS_INTERNAL_AUDIT_RETENTION_DAYS`.
 - Bila Meilisearch tidak dikonfigurasi/bermasalah, search otomatis fallback ke query DB.
 
 ## Forum discovery notes

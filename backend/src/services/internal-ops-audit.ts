@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { desc, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 
 import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
@@ -23,6 +23,10 @@ type RecordInternalOpsAuditEventInput = {
 
 type ListInternalOpsAuditEventsInput = {
   operations?: string[];
+  outcomes?: InternalOpsAuditOutcome[];
+  actor?: string;
+  createdAfter?: Date;
+  createdBefore?: Date;
   limit?: number;
 };
 
@@ -60,11 +64,20 @@ export const recordInternalOpsAuditEvent = async (input: RecordInternalOpsAuditE
 
 export const listInternalOpsAuditEvents = async (input: ListInternalOpsAuditEventsInput = {}): Promise<InternalOpsAuditEvent[]> => {
   const operations = [...new Set((input.operations ?? []).map((value) => value.trim()).filter(Boolean))];
+  const outcomes = [...new Set(input.outcomes ?? [])];
+  const actor = sanitize(input.actor);
+  const filters = [
+    operations.length > 0 ? inArray(schema.internalOpsAuditEvents.operation, operations) : undefined,
+    outcomes.length > 0 ? inArray(schema.internalOpsAuditEvents.outcome, outcomes) : undefined,
+    actor ? eq(schema.internalOpsAuditEvents.actor, actor) : undefined,
+    input.createdAfter ? gte(schema.internalOpsAuditEvents.createdAt, input.createdAfter) : undefined,
+    input.createdBefore ? lte(schema.internalOpsAuditEvents.createdAt, input.createdBefore) : undefined,
+  ];
 
   return authDb
     .select()
     .from(schema.internalOpsAuditEvents)
-    .where(operations.length > 0 ? inArray(schema.internalOpsAuditEvents.operation, operations) : undefined)
+    .where(and(...filters))
     .orderBy(desc(schema.internalOpsAuditEvents.createdAt))
     .limit(clampLimit(input.limit));
 };

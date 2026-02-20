@@ -56,7 +56,12 @@ type InternalWorkersDeps = {
   ) => Promise<unknown>;
   runOpsRetentionOnce: (
     _app: unknown,
-    input?: { batchLimit?: number; processedRetentionDays?: number; deadLetterRetentionDays?: number }
+    input?: {
+      batchLimit?: number;
+      processedRetentionDays?: number;
+      deadLetterRetentionDays?: number;
+      internalAuditRetentionDays?: number;
+    }
   ) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
   getForumMvpStatusSummary: () => Promise<ForumMvpStatusSummary>;
@@ -71,7 +76,14 @@ type InternalWorkersDeps = {
     errorCode?: string | null;
     errorMessage?: string | null;
   }) => Promise<string>;
-  listInternalOpsAuditEvents: (input?: { operations?: string[]; limit?: number }) => Promise<InternalOpsAuditEvent[]>;
+  listInternalOpsAuditEvents: (input?: {
+    operations?: string[];
+    outcomes?: Array<"completed" | "failed">;
+    actor?: string;
+    createdAfter?: Date;
+    createdBefore?: Date;
+    limit?: number;
+  }) => Promise<InternalOpsAuditEvent[]>;
   getOpsMetricsSnapshot: () => OpsMetricsSnapshot;
   claimInternalOpsCooldown: (input: { operation: string; cooldownMs: number; now?: Date }) => Promise<ClaimInternalOpsCooldownResult>;
 };
@@ -345,6 +357,7 @@ test("internal workers route triggers tx watcher, identity sync, webhook retry, 
       batchLimit: 25,
       processedRetentionDays: 7,
       deadLetterRetentionDays: 30,
+      internalAuditRetentionDays: 90,
     },
   });
 
@@ -714,22 +727,36 @@ test("internal workers forum search cancel queue endpoint supports dry-run mode"
 });
 
 test("internal workers forum search audit endpoint lists audit events", async (t) => {
+  let receivedInput:
+    | {
+        operations?: string[];
+        outcomes?: Array<"completed" | "failed">;
+        actor?: string;
+        createdAfter?: Date;
+        createdBefore?: Date;
+        limit?: number;
+      }
+    | null = null;
+
   const app = await buildInternalWorkersTestApp({
-    listInternalOpsAuditEvents: async () => [
-      {
-        id: "audit-event-1",
-        operation: "forum-search-requeue-dead-letter",
-        outcome: "completed",
-        actor: "oncall",
-        requestMethod: "POST",
-        requestPath: "/api/internal/workers/forum-search/requeue-dead-letter",
-        payload: { dryRun: true },
-        result: { wouldRequeue: 10 },
-        errorCode: null,
-        errorMessage: null,
-        createdAt: new Date(),
-      },
-    ],
+    listInternalOpsAuditEvents: async (input) => {
+      receivedInput = input ?? null;
+      return [
+        {
+          id: "audit-event-1",
+          operation: "forum-search-requeue-dead-letter",
+          outcome: "completed",
+          actor: "oncall",
+          requestMethod: "POST",
+          requestPath: "/api/internal/workers/forum-search/requeue-dead-letter",
+          payload: { dryRun: true },
+          result: { wouldRequeue: 10 },
+          errorCode: null,
+          errorMessage: null,
+          createdAt: new Date(),
+        },
+      ];
+    },
   });
 
   t.after(async () => {
@@ -738,7 +765,7 @@ test("internal workers forum search audit endpoint lists audit events", async (t
 
   const response = await app.inject({
     method: "GET",
-    url: "/api/internal/workers/forum-search/audit?limit=20",
+    url: "/api/internal/workers/forum-search/audit?limit=20&outcome=completed&actor=oncall&createdAfter=2026-02-01T00:00:00.000Z&createdBefore=2026-02-20T00:00:00.000Z",
     headers: {
       "x-internal-secret": INTERNAL_SECRET,
     },
@@ -748,6 +775,28 @@ test("internal workers forum search audit endpoint lists audit events", async (t
   assert.equal(response.json().worker, "forum-search-audit");
   assert.equal(response.json().events.length, 1);
   assert.equal(response.json().events[0].operation, "forum-search-requeue-dead-letter");
+  if (!receivedInput) {
+    throw new Error("Expected listInternalOpsAuditEvents input to be captured");
+  }
+  const auditFilters = receivedInput as {
+    operations?: string[];
+    outcomes?: Array<"completed" | "failed">;
+    actor?: string;
+    createdAfter?: Date;
+    createdBefore?: Date;
+    limit?: number;
+  };
+  assert.deepEqual(auditFilters.operations, [
+    "forum-search-reindex",
+    "forum-search-pause",
+    "forum-search-cancel-queue",
+    "forum-search-requeue-dead-letter",
+  ]);
+  assert.deepEqual(auditFilters.outcomes, ["completed"]);
+  assert.equal(auditFilters.actor, "oncall");
+  assert.equal(auditFilters.createdAfter?.toISOString(), "2026-02-01T00:00:00.000Z");
+  assert.equal(auditFilters.createdBefore?.toISOString(), "2026-02-20T00:00:00.000Z");
+  assert.equal(auditFilters.limit, 20);
 });
 
 test("internal workers forum search reindex endpoint orchestrates backfill and sync", async (t) => {
