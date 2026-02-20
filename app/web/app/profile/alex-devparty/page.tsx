@@ -53,8 +53,10 @@ export default function DeveloperProfilePage() {
   });
 
   const profile = profileQuery.data?.profile;
-  const displayName = profile?.displayEnsName || profile?.username || profile?.name || "alex.devparty";
+  const displayName = profile?.displayEnsName || profile?.displayName || profile?.username || profile?.name || "alex.devparty";
   const headline = profile?.organization || "Senior Full-Stack Engineer";
+  const bio = profile?.bio || "Sign in to load backend profile fields and metrics.";
+  const githubUsername = profile?.githubUsername;
   const followers = profile?.metrics?.followerCount ?? 0;
   const following = profile?.metrics?.followingCount ?? 0;
   const postsCount = profile?.metrics?.postCount ?? 0;
@@ -84,8 +86,8 @@ export default function DeveloperProfilePage() {
               </div>
               <p className="text-sm leading-relaxed text-muted-foreground">
                 {profile
-                  ? `${profile.location ? `Based in ${profile.location}. ` : ""}${profile.websiteUrl ? `Website: ${profile.websiteUrl}` : "Forum profile is synced from backend."}`
-                  : "Sign in to load backend profile fields and metrics."}
+                  ? `${bio}${profile.location ? ` Location: ${profile.location}.` : ""}${profile.websiteUrl ? ` Website: ${profile.websiteUrl}.` : ""}${githubUsername ? ` GitHub: @${githubUsername}.` : ""}`
+                  : bio}
               </p>
               <div className="grid grid-cols-3 gap-2 border-t border-border pt-4 text-center">
                 <div>

@@ -148,9 +148,13 @@ export type ForumProfilePayload = {
     name?: string | null;
     username?: string | null;
     image?: string | null;
+    displayName?: string | null;
+    headline?: string | null;
+    bio?: string | null;
     location?: string | null;
     organization?: string | null;
     websiteUrl?: string | null;
+    githubUsername?: string | null;
     brandingEmail?: string | null;
     displayWalletAddress?: string | null;
     displayEnsName?: string | null;
@@ -392,9 +396,13 @@ export const createForumComment = async (postId: string, payload: { markdown: st
 };
 
 export const patchForumProfile = async (payload: {
+  displayName?: string;
+  headline?: string;
+  bio?: string;
   location?: string;
   organization?: string;
   websiteUrl?: string;
+  githubUsername?: string;
   brandingEmail?: string;
   displayWalletAddress?: string;
   displayEnsName?: string;

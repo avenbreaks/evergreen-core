@@ -33,9 +33,13 @@ export const registerForumProfileRoutes = (app: FastifyInstance, context: ForumR
 
       return deps.updateForumProfile({
         userId: authSession.user.id,
+        displayName: body.displayName,
+        headline: body.headline,
+        bio: body.bio,
         location: body.location,
         organization: body.organization,
         websiteUrl: body.websiteUrl,
+        githubUsername: body.githubUsername,
         brandingEmail: body.brandingEmail,
         displayWalletAddress: body.displayWalletAddress,
         displayEnsName: body.displayEnsName,

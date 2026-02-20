@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Camera, Fingerprint, Github, Globe, Save, User } from "lucide-react";
+import { Camera, Fingerprint, Github, Globe, Save } from "lucide-react";
 
 import { EvergreenHeader } from "@/components/layout/evergreen-header";
 import { Badge } from "@/components/ui/badge";
@@ -25,10 +25,10 @@ const navItems = [
 
 export default function SettingsProfilePage() {
   const [displayName, setDisplayName] = useState<string | null>(null);
-  const [bio, setBio] = useState("");
+  const [bio, setBio] = useState<string | null>(null);
   const [skills, setSkills] = useState(["Rust", "React", "Solidity"]);
   const [skillInput, setSkillInput] = useState("");
-  const [twitter, setTwitter] = useState("");
+  const [githubUsername, setGithubUsername] = useState<string | null>(null);
   const [website, setWebsite] = useState<string | null>(null);
   const [location, setLocation] = useState<string | null>(null);
   const [organization, setOrganization] = useState<string | null>(null);
@@ -51,7 +51,9 @@ export default function SettingsProfilePage() {
   });
 
   const profile = profileQuery.data?.profile;
-  const displayNameValue = displayName ?? meQuery.data?.user?.name ?? "Alex Developer";
+  const displayNameValue = displayName ?? profile?.displayName ?? meQuery.data?.user?.name ?? "Alex Developer";
+  const bioValue = bio ?? profile?.bio ?? "";
+  const githubUsernameValue = githubUsername ?? profile?.githubUsername ?? "";
   const locationValue = location ?? profile?.location ?? "";
   const organizationValue = organization ?? profile?.organization ?? "";
   const websiteValue = website ?? profile?.websiteUrl ?? "";
@@ -62,9 +64,12 @@ export default function SettingsProfilePage() {
   const saveMutation = useMutation({
     mutationFn: () =>
       patchForumProfile({
+        displayName: displayNameValue || undefined,
+        bio: bioValue || undefined,
         location: locationValue || undefined,
         organization: organizationValue || undefined,
         websiteUrl: websiteValue || undefined,
+        githubUsername: githubUsernameValue || undefined,
         brandingEmail: brandingEmailValue || undefined,
         displayWalletAddress: walletAddressValue || undefined,
         displayEnsName: ensHandleValue || undefined,
@@ -81,6 +86,9 @@ export default function SettingsProfilePage() {
       setLocation(profile.location || "");
       setOrganization(profile.organization || "");
       setWebsite(profile.websiteUrl || "");
+      setDisplayName(profile.displayName || "");
+      setBio(profile.bio || "");
+      setGithubUsername(profile.githubUsername || "");
       setBrandingEmail(profile.brandingEmail || "");
       setWalletAddress(profile.displayWalletAddress || "");
       setEnsHandle(profile.displayEnsName || "");
@@ -196,7 +204,7 @@ export default function SettingsProfilePage() {
                 <Label htmlFor="profile-bio">Bio</Label>
                 <Textarea
                   id="profile-bio"
-                  value={bio}
+                  value={bioValue}
                   onChange={(event) => setBio(event.target.value)}
                   placeholder="Tell us about yourself..."
                   className="min-h-[110px] border-border bg-background"
@@ -251,12 +259,12 @@ export default function SettingsProfilePage() {
             <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="flex items-center rounded-lg border border-border bg-background">
                 <span className="border-r border-border px-3 text-muted-foreground">
-                  <User className="size-4" />
+                  <Github className="size-4" />
                 </span>
                 <Input
-                  value={twitter}
-                  onChange={(event) => setTwitter(event.target.value)}
-                  placeholder="Twitter username"
+                  value={githubUsernameValue}
+                  onChange={(event) => setGithubUsername(event.target.value)}
+                  placeholder="GitHub username"
                   className="border-0 bg-transparent shadow-none focus-visible:ring-0"
                 />
               </div>

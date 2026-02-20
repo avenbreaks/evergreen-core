@@ -14,10 +14,14 @@ export const getForumProfile = async (userId: string) => {
 
   await ensureProfileMetrics(userId);
 
-  const [extended, metrics] = await Promise.all([
+  const [profileRows, extended, metrics] = await Promise.all([
+    authDb.select().from(schema.profiles).where(eq(schema.profiles.userId, userId)).limit(1),
     authDb.select().from(schema.profileExtended).where(eq(schema.profileExtended.userId, userId)).limit(1),
     authDb.select().from(schema.profileMetrics).where(eq(schema.profileMetrics.userId, userId)).limit(1),
   ]);
+
+  const profile = profileRows[0] ?? null;
+  const extendedProfile = extended[0] ?? null;
 
   return {
     profile: {
@@ -26,12 +30,16 @@ export const getForumProfile = async (userId: string) => {
       name: user.name,
       username: user.username,
       image: user.image,
-      location: extended[0]?.location ?? null,
-      organization: extended[0]?.organization ?? null,
-      websiteUrl: extended[0]?.websiteUrl ?? null,
-      brandingEmail: extended[0]?.brandingEmail ?? null,
-      displayWalletAddress: extended[0]?.displayWalletAddress ?? null,
-      displayEnsName: extended[0]?.displayEnsName ?? null,
+      displayName: profile?.displayName ?? null,
+      headline: profile?.headline ?? null,
+      bio: profile?.bio ?? null,
+      websiteUrl: extendedProfile?.websiteUrl ?? profile?.websiteUrl ?? null,
+      githubUsername: profile?.githubUsername ?? null,
+      location: extendedProfile?.location ?? profile?.location ?? null,
+      organization: extendedProfile?.organization ?? null,
+      brandingEmail: extendedProfile?.brandingEmail ?? null,
+      displayWalletAddress: extendedProfile?.displayWalletAddress ?? null,
+      displayEnsName: extendedProfile?.displayEnsName ?? null,
       metrics: metrics[0] ?? null,
     },
   };
@@ -39,21 +47,51 @@ export const getForumProfile = async (userId: string) => {
 
 export const updateForumProfile = async (input: {
   userId: string;
+  displayName?: string;
+  headline?: string;
+  bio?: string;
   location?: string;
   organization?: string;
   websiteUrl?: string;
+  githubUsername?: string;
   brandingEmail?: string;
   displayWalletAddress?: string;
   displayEnsName?: string;
 }) => {
   const now = new Date();
-  const [existing] = await authDb
-    .select()
-    .from(schema.profileExtended)
-    .where(eq(schema.profileExtended.userId, input.userId))
-    .limit(1);
 
-  const values = {
+  const [existingProfile, existingExtended] = await Promise.all([
+    authDb
+      .select({ userId: schema.profiles.userId })
+      .from(schema.profiles)
+      .where(eq(schema.profiles.userId, input.userId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+    authDb
+      .select({ userId: schema.profileExtended.userId })
+      .from(schema.profileExtended)
+      .where(eq(schema.profileExtended.userId, input.userId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+  ]);
+
+  const profileValues = {
+    userId: input.userId,
+    displayName: input.displayName?.trim() || null,
+    headline: input.headline?.trim() || null,
+    bio: input.bio?.trim() || null,
+    websiteUrl: input.websiteUrl?.trim() || null,
+    githubUsername: input.githubUsername?.trim() || null,
+    updatedAt: now,
+  };
+
+  if (existingProfile) {
+    await authDb.update(schema.profiles).set(profileValues).where(eq(schema.profiles.userId, input.userId));
+  } else {
+    await authDb.insert(schema.profiles).values(profileValues);
+  }
+
+  const extendedValues = {
     userId: input.userId,
     location: input.location?.trim() || null,
     organization: input.organization?.trim() || null,
@@ -64,10 +102,10 @@ export const updateForumProfile = async (input: {
     updatedAt: now,
   };
 
-  if (existing) {
-    await authDb.update(schema.profileExtended).set(values).where(eq(schema.profileExtended.userId, input.userId));
+  if (existingExtended) {
+    await authDb.update(schema.profileExtended).set(extendedValues).where(eq(schema.profileExtended.userId, input.userId));
   } else {
-    await authDb.insert(schema.profileExtended).values(values);
+    await authDb.insert(schema.profileExtended).values(extendedValues);
   }
 
   return getForumProfile(input.userId);

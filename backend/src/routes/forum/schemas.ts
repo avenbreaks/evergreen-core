@@ -123,9 +123,13 @@ export const profileParamsSchema = z.object({
 });
 
 export const profileUpdateBodySchema = z.object({
+  displayName: z.string().max(120).optional(),
+  headline: z.string().max(160).optional(),
+  bio: z.string().max(4000).optional(),
   location: z.string().max(160).optional(),
   organization: z.string().max(160).optional(),
   websiteUrl: z.string().max(1000).optional(),
+  githubUsername: z.string().max(80).optional(),
   brandingEmail: z.string().email().max(320).optional(),
   displayWalletAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
   displayEnsName: z.string().max(255).optional(),
