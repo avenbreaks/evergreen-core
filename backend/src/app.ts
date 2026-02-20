@@ -22,6 +22,7 @@ import { internalWorkersRoutes } from "./routes/internal-workers";
 import { meRoutes } from "./routes/me";
 import { metricsRoutes } from "./routes/metrics";
 import { networkRoutes } from "./routes/network";
+import { passwordRoutes } from "./routes/password";
 import { reconciliationRoutes } from "./routes/reconciliation";
 import { siweRoutes } from "./routes/siwe";
 import { webhookRoutes } from "./routes/webhooks";
@@ -54,6 +55,7 @@ export const buildApp = () => {
   app.register(healthRoutes);
   app.register(networkRoutes);
   app.register(authBridgeRoutes);
+  app.register(passwordRoutes);
   app.register(siweRoutes);
   app.register(meRoutes);
   app.register(apiKeyRoutes);
