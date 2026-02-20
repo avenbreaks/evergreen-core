@@ -11,8 +11,8 @@ import { analyzeMarkdown } from "./forum-markdown";
 
 export const MAX_REPLY_DEPTH = 3;
 
-export type Mention = ReturnType<typeof analyzeMarkdown>["mentions"][number];
-export type Link = ReturnType<typeof analyzeMarkdown>["links"][number];
+type Mention = ReturnType<typeof analyzeMarkdown>["mentions"][number];
+type Link = ReturnType<typeof analyzeMarkdown>["links"][number];
 
 const slugify = (input: string): string =>
   input
@@ -86,15 +86,6 @@ export const ensureUserExists = async (userId: string) => {
   const [user] = await authDb.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
   if (!user) {
     throw new HttpError(404, "USER_NOT_FOUND", "User not found");
-  }
-
-  return user;
-};
-
-export const ensureModerator = async (userId: string) => {
-  const user = await ensureUserExists(userId);
-  if (!user.role || !["moderator", "admin"].includes(user.role)) {
-    throw new HttpError(403, "FORBIDDEN", "Moderator access required");
   }
 
   return user;

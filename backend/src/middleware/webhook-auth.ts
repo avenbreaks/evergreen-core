@@ -105,8 +105,6 @@ export const verifyInternalOpsSecretMiddleware: preHandlerHookHandler = async (r
   }
 };
 
-export const verifyWebhookSecretMiddleware = verifyInternalOpsSecretMiddleware;
-
 export const verifyWebhookSignatureMiddleware: preHandlerHookHandler = async (request) => {
   assertWebhookEnabledAndIpAllowed(request);
 

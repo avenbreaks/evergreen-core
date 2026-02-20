@@ -111,7 +111,7 @@ export const recordForumEndpointMetric = (input: {
   bucket.latencyMsMax = Math.max(bucket.latencyMsMax, latencyMs);
 };
 
-export const getForumMetricsSnapshot = (): ForumMetricsSnapshot => ({
+const getForumMetricsSnapshot = (): ForumMetricsSnapshot => ({
   actions: cloneActionTotals(actionTotals),
   endpoints: [...endpointMetrics.values()].map((entry) => ({
     method: entry.method,
