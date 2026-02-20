@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Loader2, MessageCircle, Plus, Search, Share2, ThumbsUp, UserPlus } from "lucide-react";
 
 import { ViewerSummaryCard } from "@/components/auth/viewer-summary-card";
@@ -45,6 +45,7 @@ const formatRelative = (value: string): string => {
 
 export default function FeedPage() {
   const queryClient = useQueryClient();
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [feedMode, setFeedMode] = useState<"all" | "following">("all");
   const [title, setTitle] = useState("");
   const [markdown, setMarkdown] = useState("");
@@ -59,13 +60,16 @@ export default function FeedPage() {
     queryFn: fetchMe,
   });
 
-  const feedQuery = useQuery({
+  const feedInfiniteQuery = useInfiniteQuery({
     queryKey: ["forum-feed", feedMode],
-    queryFn: () =>
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
       fetchForumFeed({
         limit: 20,
+        cursor: pageParam,
         followingOnly: feedMode === "following" ? true : undefined,
       }),
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
   });
 
   const createPostMutation = useMutation({
@@ -158,7 +162,43 @@ export default function FeedPage() {
     });
   };
 
-  const posts = feedQuery.data?.posts ?? [];
+  const posts = useMemo(() => {
+    const seen = new Set<string>();
+    return (feedInfiniteQuery.data?.pages ?? [])
+      .flatMap((page) => page.posts)
+      .filter((post) => {
+        if (seen.has(post.id)) {
+          return false;
+        }
+
+        seen.add(post.id);
+        return true;
+      });
+  }, [feedInfiniteQuery.data?.pages]);
+
+  const feedHasNextPage = feedInfiniteQuery.hasNextPage;
+  const isFeedFetchingNextPage = feedInfiniteQuery.isFetchingNextPage;
+  const fetchFeedNextPage = feedInfiniteQuery.fetchNextPage;
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !feedHasNextPage || isFeedFetchingNextPage) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void fetchFeedNextPage();
+        }
+      },
+      { rootMargin: "360px" }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchFeedNextPage, feedHasNextPage, isFeedFetchingNextPage]);
+
   const viewerId = meQuery.data?.user?.id;
 
   return (
@@ -255,7 +295,7 @@ export default function FeedPage() {
           ) : null}
 
           <div className="space-y-4">
-            {feedQuery.isPending ? (
+            {feedInfiniteQuery.isPending ? (
               <Card className="border-border bg-card/90">
                 <CardContent className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
@@ -264,15 +304,15 @@ export default function FeedPage() {
               </Card>
             ) : null}
 
-            {feedQuery.isError ? (
+            {feedInfiniteQuery.isError ? (
               <Card className="border-destructive/30 bg-destructive/10">
                 <CardContent className="p-6 text-sm text-destructive">
-                  {feedQuery.error instanceof Error ? feedQuery.error.message : "Could not load forum feed"}
+                  {feedInfiniteQuery.error instanceof Error ? feedInfiniteQuery.error.message : "Could not load forum feed"}
                 </CardContent>
               </Card>
             ) : null}
 
-            {!feedQuery.isPending && !feedQuery.isError && posts.length === 0 ? (
+            {!feedInfiniteQuery.isPending && !feedInfiniteQuery.isError && posts.length === 0 ? (
               <Card className="border-border bg-card/90">
                 <CardContent className="p-6 text-sm text-muted-foreground">
                   No posts yet for this feed mode. Publish the first discussion.
@@ -388,6 +428,21 @@ export default function FeedPage() {
                 </CardContent>
               </Card>
             ))}
+
+            {feedHasNextPage ? (
+              <div ref={loadMoreRef} className="py-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full border-border bg-card/80 text-muted-foreground hover:bg-card"
+                  disabled={isFeedFetchingNextPage}
+                  onClick={() => void fetchFeedNextPage()}
+                >
+                  {isFeedFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : null}
+                  Load more posts
+                </Button>
+              </div>
+            ) : null}
           </div>
         </section>
 

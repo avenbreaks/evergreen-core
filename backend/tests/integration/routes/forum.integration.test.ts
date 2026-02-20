@@ -330,6 +330,57 @@ test("forum route resolves auth user for following-only feed", async (t) => {
   });
 });
 
+test("forum post detail route forwards comments pagination query", async (t) => {
+  let receivedInput: unknown = null;
+
+  const app = await buildForumTestApp({
+    getForumPostDetail: async (input) => {
+      receivedInput = input;
+      const now = new Date();
+      return {
+        post: {
+          id: TEST_POST_ID,
+          title: "sample",
+          slug: "sample",
+          status: "published",
+          isPinned: false,
+          isLocked: false,
+          commentCount: 0,
+          reactionCount: 0,
+          shareCount: 0,
+          bookmarkCount: 0,
+          createdAt: now,
+          updatedAt: now,
+          lastActivityAt: now,
+          deletedAt: null,
+          authorId: TEST_USER_ID,
+          contentMarkdown: "sample",
+          contentPlaintext: "sample",
+          contentMeta: {},
+        },
+        comments: [],
+        commentsNextCursor: null,
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/forum/posts/${TEST_POST_ID}?commentsLimit=12&commentsCursor=${TEST_COMMENT_ID}`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(receivedInput, {
+    postId: TEST_POST_ID,
+    commentsLimit: 12,
+    commentsCursor: TEST_COMMENT_ID,
+  });
+});
+
 test("forum protected write route rejects missing auth", async (t) => {
   const app = await buildForumTestApp({
     requireAuthSessionMiddleware: async () => {

@@ -8,6 +8,7 @@ import {
   draftQuerySchema,
   listPostsQuerySchema,
   markdownBodySchema,
+  postDetailQuerySchema,
   postParamsSchema,
   updatePostBodySchema,
 } from "./schemas";
@@ -56,7 +57,13 @@ export const registerForumContentRoutes = (app: FastifyInstance, context: ForumR
 
   app.get("/api/forum/posts/:postId", async (request) => {
     const params = postParamsSchema.parse(request.params);
-    return deps.getForumPostDetail(params.postId);
+    const query = postDetailQuerySchema.parse(request.query);
+
+    return deps.getForumPostDetail({
+      postId: params.postId,
+      commentsLimit: query.commentsLimit,
+      commentsCursor: query.commentsCursor,
+    });
   });
 
   app.patch(

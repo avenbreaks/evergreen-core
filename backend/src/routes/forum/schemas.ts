@@ -23,6 +23,11 @@ export const postParamsSchema = z.object({
   postId: z.string().uuid(),
 });
 
+export const postDetailQuerySchema = z.object({
+  commentsLimit: z.coerce.number().int().positive().max(100).optional(),
+  commentsCursor: z.string().uuid().optional(),
+});
+
 export const createCommentBodySchema = z.object({
   markdown: z.string().min(1).max(12000),
   parentId: z.string().uuid().optional(),

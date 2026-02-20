@@ -285,12 +285,13 @@ test("forum DB integration detail endpoint returns post and comment bodies", asy
   const app = await buildForumDbTestApp();
   let postId: string | null = null;
   let commentId: string | null = null;
+  let secondCommentId: string | null = null;
 
   t.after(async () => {
     await app.close();
     await cleanupUsersAndQueueTargets({
       userIds: [authorId, commenterId],
-      targetIds: [postId, commentId].filter((value): value is string => Boolean(value)),
+      targetIds: [postId, commentId, secondCommentId].filter((value): value is string => Boolean(value)),
     });
   });
 
@@ -325,9 +326,24 @@ test("forum DB integration detail endpoint returns post and comment bodies", asy
   assert.equal(createCommentResponse.statusCode, 200);
   commentId = createCommentResponse.json().comment.id;
 
+  const secondCommentMarkdown = "Second comment body from integration test";
+  const createSecondCommentResponse = await app.inject({
+    method: "POST",
+    url: `/api/forum/posts/${postId}/comments`,
+    headers: {
+      "x-test-user-id": commenterId,
+    },
+    payload: {
+      markdown: secondCommentMarkdown,
+    },
+  });
+
+  assert.equal(createSecondCommentResponse.statusCode, 200);
+  secondCommentId = createSecondCommentResponse.json().comment.id;
+
   const detailResponse = await app.inject({
     method: "GET",
-    url: `/api/forum/posts/${postId}`,
+    url: `/api/forum/posts/${postId}?commentsLimit=1`,
   });
 
   assert.equal(detailResponse.statusCode, 200);
@@ -336,11 +352,25 @@ test("forum DB integration detail endpoint returns post and comment bodies", asy
   assert.ok(typeof payload.post.contentMarkdown === "string");
   assert.ok(payload.post.contentMarkdown.includes("full markdown body"));
   assert.ok(Array.isArray(payload.comments));
-  assert.ok(payload.comments.some((comment: { id: string; contentMarkdown?: string }) => comment.id === commentId));
+  assert.equal(payload.comments.length, 1);
+  assert.ok(payload.commentsNextCursor);
 
-  const createdComment = payload.comments.find((comment: { id: string; contentMarkdown?: string }) => comment.id === commentId);
+  const createdComment = payload.comments[0] as { id: string; contentMarkdown?: string };
   assert.ok(createdComment);
-  assert.equal(createdComment?.contentMarkdown, commentMarkdown);
+  assert.ok(createdComment.id === commentId || createdComment.id === secondCommentId);
+
+  const nextPageResponse = await app.inject({
+    method: "GET",
+    url: `/api/forum/posts/${postId}?commentsLimit=1&commentsCursor=${payload.commentsNextCursor}`,
+  });
+
+  assert.equal(nextPageResponse.statusCode, 200);
+  const nextPayload = nextPageResponse.json();
+  assert.equal(nextPayload.comments.length, 1);
+  const nextComment = nextPayload.comments[0] as { id: string; contentMarkdown?: string };
+  assert.ok(nextComment);
+  assert.notEqual(nextComment.id, createdComment.id);
+  assert.ok([commentMarkdown, secondCommentMarkdown].includes(nextComment.contentMarkdown || ""));
 });
 
 test("forum DB integration blocks self-share on own post", async (t) => {

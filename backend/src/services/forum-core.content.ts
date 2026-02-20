@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
@@ -244,12 +244,41 @@ export const softDeleteForumPost = async (input: { userId: string; postId: strin
 
 export const listForumPosts = async (input: { limit?: number; cursor?: string } = {}) => {
   const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
+  const filters = [eq(schema.forumPosts.status, "published")];
+
+  if (input.cursor) {
+    const [cursorPost] = await authDb
+      .select({
+        id: schema.forumPosts.id,
+        lastActivityAt: schema.forumPosts.lastActivityAt,
+        createdAt: schema.forumPosts.createdAt,
+      })
+      .from(schema.forumPosts)
+      .where(eq(schema.forumPosts.id, input.cursor))
+      .limit(1);
+
+    if (cursorPost) {
+      const cursorFilter = or(
+        lt(schema.forumPosts.lastActivityAt, cursorPost.lastActivityAt),
+        and(eq(schema.forumPosts.lastActivityAt, cursorPost.lastActivityAt), lt(schema.forumPosts.createdAt, cursorPost.createdAt)),
+        and(
+          eq(schema.forumPosts.lastActivityAt, cursorPost.lastActivityAt),
+          eq(schema.forumPosts.createdAt, cursorPost.createdAt),
+          lt(schema.forumPosts.id, cursorPost.id)
+        )
+      );
+
+      if (cursorFilter) {
+        filters.push(cursorFilter);
+      }
+    }
+  }
 
   const posts = await authDb
     .select()
     .from(schema.forumPosts)
-    .where(and(eq(schema.forumPosts.status, "published"), input.cursor ? ne(schema.forumPosts.id, input.cursor) : undefined))
-    .orderBy(desc(schema.forumPosts.isPinned), desc(schema.forumPosts.lastActivityAt), desc(schema.forumPosts.createdAt))
+    .where(and(...filters))
+    .orderBy(desc(schema.forumPosts.lastActivityAt), desc(schema.forumPosts.createdAt), desc(schema.forumPosts.id))
     .limit(limit);
 
   return {
@@ -258,21 +287,53 @@ export const listForumPosts = async (input: { limit?: number; cursor?: string } 
   };
 };
 
-export const getForumPostDetail = async (postId: string) => {
-  const [post] = await authDb.select().from(schema.forumPosts).where(eq(schema.forumPosts.id, postId)).limit(1);
+export const getForumPostDetail = async (input: {
+  postId: string;
+  commentsLimit?: number;
+  commentsCursor?: string;
+}) => {
+  const [post] = await authDb.select().from(schema.forumPosts).where(eq(schema.forumPosts.id, input.postId)).limit(1);
   if (!post || post.status === "soft_deleted") {
     throw new HttpError(404, "POST_NOT_FOUND", "Forum post not found");
+  }
+
+  const commentsLimit = Math.max(1, Math.min(input.commentsLimit ?? 20, 100));
+  const commentFilters = [eq(schema.forumComments.postId, input.postId), eq(schema.forumComments.status, "published")];
+
+  if (input.commentsCursor) {
+    const [cursorComment] = await authDb
+      .select({
+        id: schema.forumComments.id,
+        postId: schema.forumComments.postId,
+        createdAt: schema.forumComments.createdAt,
+      })
+      .from(schema.forumComments)
+      .where(eq(schema.forumComments.id, input.commentsCursor))
+      .limit(1);
+
+    if (cursorComment && cursorComment.postId === input.postId) {
+      const cursorFilter = or(
+        lt(schema.forumComments.createdAt, cursorComment.createdAt),
+        and(eq(schema.forumComments.createdAt, cursorComment.createdAt), lt(schema.forumComments.id, cursorComment.id))
+      );
+
+      if (cursorFilter) {
+        commentFilters.push(cursorFilter);
+      }
+    }
   }
 
   const comments = await authDb
     .select()
     .from(schema.forumComments)
-    .where(and(eq(schema.forumComments.postId, postId), eq(schema.forumComments.status, "published")))
-    .orderBy(asc(schema.forumComments.createdAt));
+    .where(and(...commentFilters))
+    .orderBy(desc(schema.forumComments.createdAt), desc(schema.forumComments.id))
+    .limit(commentsLimit);
 
   return {
     post: summarizePostDetail(post),
     comments: comments.map((comment) => summarizeCommentDetail(comment)),
+    commentsNextCursor: comments.at(-1)?.id ?? null,
   };
 };
 

@@ -91,6 +91,7 @@ export type ForumFeedPayload = {
 export type ForumPostDetailPayload = {
   post: ForumPostSummary;
   comments: ForumCommentSummary[];
+  commentsNextCursor: string | null;
 };
 
 export type ForumProfilePayload = {
@@ -311,8 +312,20 @@ export const createForumPost = async (payload: {
   return postJson<{ post: ForumPostSummary; tags?: string[] }>("/api/forum/posts", payload);
 };
 
-export const fetchForumPostDetail = async (postId: string): Promise<ForumPostDetailPayload> => {
-  const response = await fetch(`/api/forum/posts/${postId}`, {
+export const fetchForumPostDetail = async (
+  postId: string,
+  input: { commentsLimit?: number; commentsCursor?: string } = {}
+): Promise<ForumPostDetailPayload> => {
+  const params = new URLSearchParams();
+  if (input.commentsLimit) {
+    params.set("commentsLimit", String(input.commentsLimit));
+  }
+  if (input.commentsCursor) {
+    params.set("commentsCursor", input.commentsCursor);
+  }
+
+  const query = params.toString();
+  const response = await fetch(`/api/forum/posts/${postId}${query ? `?${query}` : ""}`, {
     cache: "no-store",
   });
 
@@ -321,7 +334,10 @@ export const fetchForumPostDetail = async (postId: string): Promise<ForumPostDet
     throw new Error("Forum post payload is empty");
   }
 
-  return payload;
+  return {
+    ...payload,
+    commentsNextCursor: payload.commentsNextCursor ?? null,
+  };
 };
 
 export const createForumComment = async (postId: string, payload: { markdown: string; parentId?: string }) => {

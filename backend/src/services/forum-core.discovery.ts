@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, lt, or, sql } from "drizzle-orm";
 
 import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
@@ -71,7 +71,36 @@ export const getForumFeed = async (input: {
     }
   }
 
-  const filters = [eq(schema.forumPosts.status, "published"), input.cursor ? ne(schema.forumPosts.id, input.cursor) : undefined];
+  const filters = [eq(schema.forumPosts.status, "published")];
+
+  if (input.cursor) {
+    const [cursorPost] = await authDb
+      .select({
+        id: schema.forumPosts.id,
+        lastActivityAt: schema.forumPosts.lastActivityAt,
+        createdAt: schema.forumPosts.createdAt,
+      })
+      .from(schema.forumPosts)
+      .where(eq(schema.forumPosts.id, input.cursor))
+      .limit(1);
+
+    if (cursorPost) {
+      const cursorFilter = or(
+        lt(schema.forumPosts.lastActivityAt, cursorPost.lastActivityAt),
+        and(eq(schema.forumPosts.lastActivityAt, cursorPost.lastActivityAt), lt(schema.forumPosts.createdAt, cursorPost.createdAt)),
+        and(
+          eq(schema.forumPosts.lastActivityAt, cursorPost.lastActivityAt),
+          eq(schema.forumPosts.createdAt, cursorPost.createdAt),
+          lt(schema.forumPosts.id, cursorPost.id)
+        )
+      );
+
+      if (cursorFilter) {
+        filters.push(cursorFilter);
+      }
+    }
+  }
+
   if (authorIds) {
     filters.push(inArray(schema.forumPosts.authorId, authorIds));
   }
@@ -80,7 +109,7 @@ export const getForumFeed = async (input: {
     .select()
     .from(schema.forumPosts)
     .where(and(...filters))
-    .orderBy(desc(schema.forumPosts.isPinned), desc(schema.forumPosts.lastActivityAt), desc(schema.forumPosts.createdAt))
+    .orderBy(desc(schema.forumPosts.lastActivityAt), desc(schema.forumPosts.createdAt), desc(schema.forumPosts.id))
     .limit(limit);
 
   return {

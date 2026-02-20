@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowBigUp, Bookmark, Loader2, MessageSquare, Share2, UserPlus } from "lucide-react";
 
 import { ViewerSummaryCard } from "@/components/auth/viewer-summary-card";
@@ -47,6 +47,7 @@ export default function ThreadDiscussionPage() {
   const postId = typeof params.postId === "string" ? params.postId : "";
 
   const queryClient = useQueryClient();
+  const loadMoreCommentsRef = useRef<HTMLDivElement | null>(null);
   const [replyMarkdown, setReplyMarkdown] = useState("");
   const [replyMessage, setReplyMessage] = useState<string | null>(null);
   const [replyError, setReplyError] = useState<string | null>(null);
@@ -58,10 +59,16 @@ export default function ThreadDiscussionPage() {
     queryFn: fetchMe,
   });
 
-  const detailQuery = useQuery({
+  const detailQuery = useInfiniteQuery({
     queryKey: ["forum-post-detail", postId],
-    queryFn: () => fetchForumPostDetail(postId),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      fetchForumPostDetail(postId, {
+        commentsLimit: 20,
+        commentsCursor: pageParam,
+      }),
     enabled: Boolean(postId),
+    getNextPageParam: (lastPage) => lastPage.commentsNextCursor || undefined,
   });
 
   const invalidateThread = async () => {
@@ -167,8 +174,44 @@ export default function ThreadDiscussionPage() {
     commentMutation.mutate({ markdown: replyMarkdown });
   };
 
-  const threadPost = detailQuery.data?.post;
-  const threadComments = detailQuery.data?.comments ?? [];
+  const threadPost = detailQuery.data?.pages[0]?.post;
+  const threadComments = useMemo(() => {
+    const seen = new Set<string>();
+    return (detailQuery.data?.pages ?? [])
+      .flatMap((page) => page.comments)
+      .filter((comment) => {
+        if (seen.has(comment.id)) {
+          return false;
+        }
+
+        seen.add(comment.id);
+        return true;
+      });
+  }, [detailQuery.data?.pages]);
+
+  const hasNextCommentPage = detailQuery.hasNextPage;
+  const isFetchingNextCommentPage = detailQuery.isFetchingNextPage;
+  const fetchNextCommentPage = detailQuery.fetchNextPage;
+
+  useEffect(() => {
+    const target = loadMoreCommentsRef.current;
+    if (!target || !hasNextCommentPage || isFetchingNextCommentPage) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void fetchNextCommentPage();
+        }
+      },
+      { rootMargin: "320px" }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchNextCommentPage, hasNextCommentPage, isFetchingNextCommentPage]);
+
   const viewerId = meQuery.data?.user?.id;
   const threadBody = threadPost?.contentMarkdown?.trim() || threadPost?.contentPlaintext?.trim() || "";
 
@@ -363,6 +406,21 @@ export default function ThreadDiscussionPage() {
                 </CardContent>
               </Card>
             ))}
+
+            {hasNextCommentPage ? (
+              <div ref={loadMoreCommentsRef} className="py-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full border-border bg-card/80 text-muted-foreground hover:bg-card"
+                  disabled={isFetchingNextCommentPage}
+                  onClick={() => void fetchNextCommentPage()}
+                >
+                  {isFetchingNextCommentPage ? <Loader2 className="size-4 animate-spin" /> : null}
+                  Load more comments
+                </Button>
+              </div>
+            ) : null}
           </div>
         </section>
 
