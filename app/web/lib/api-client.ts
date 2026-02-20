@@ -94,6 +94,53 @@ export type ForumPostDetailPayload = {
   commentsNextCursor: string | null;
 };
 
+export type ModerationReportStatus = "open" | "resolved" | "dismissed";
+
+export type ModerationReportItem = {
+  id: string;
+  status: ModerationReportStatus;
+  reason: string;
+  targetType: "post" | "comment" | "user";
+  targetId: string | null;
+  postId: string | null;
+  commentId: string | null;
+  reportedUserId: string | null;
+  reporterUserId: string;
+  reviewedByUserId: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  postTitle: string | null;
+  postLocked: boolean;
+  commentPreview: string | null;
+  reporter?: {
+    id: string;
+    name?: string | null;
+    username?: string | null;
+    email?: string | null;
+    role?: string | null;
+  } | null;
+  reportedUser?: {
+    id: string;
+    name?: string | null;
+    username?: string | null;
+    email?: string | null;
+    role?: string | null;
+  } | null;
+  reviewedBy?: {
+    id: string;
+    name?: string | null;
+    username?: string | null;
+    email?: string | null;
+    role?: string | null;
+  } | null;
+};
+
+export type ModerationReportsPayload = {
+  reports: ModerationReportItem[];
+  nextCursor: string | null;
+};
+
 export type ForumProfilePayload = {
   profile?: {
     userId: string;
@@ -361,6 +408,56 @@ export const fetchForumProfile = async (userId: string): Promise<ForumProfilePay
   });
 
   return ensureOk(response, await parseJson<ForumProfilePayload>(response)) ?? {};
+};
+
+export const submitForumReport = async (payload: {
+  targetType: "post" | "comment" | "user";
+  targetId: string;
+  reason: string;
+}) => {
+  return postJson<{ reportId: string; status: ModerationReportStatus }>("/api/forum/reports", payload);
+};
+
+export const fetchModerationReports = async (input: {
+  status?: ModerationReportStatus;
+  limit?: number;
+  cursor?: string;
+} = {}): Promise<ModerationReportsPayload> => {
+  const params = new URLSearchParams();
+  if (input.status) {
+    params.set("status", input.status);
+  }
+  if (input.limit) {
+    params.set("limit", String(input.limit));
+  }
+  if (input.cursor) {
+    params.set("cursor", input.cursor);
+  }
+
+  const query = params.toString();
+  const response = await fetch(`/api/forum/mod/reports${query ? `?${query}` : ""}`, {
+    cache: "no-store",
+  });
+
+  return ensureOk(response, await parseJson<ModerationReportsPayload>(response)) ?? { reports: [], nextCursor: null };
+};
+
+export const resolveModerationReport = async (payload: { reportId: string; status: Exclude<ModerationReportStatus, "open"> }) => {
+  return patchJson<{
+    reportId: string;
+    previousStatus: ModerationReportStatus;
+    status: Exclude<ModerationReportStatus, "open">;
+    reviewedByUserId: string;
+    reviewedAt: string;
+  }>(`/api/forum/mod/reports/${payload.reportId}`, {
+    status: payload.status,
+  });
+};
+
+export const setModerationPostLock = async (payload: { postId: string; locked: boolean }) => {
+  return postJson<{ postId: string; locked: boolean }>(`/api/forum/mod/posts/${payload.postId}/lock`, {
+    locked: payload.locked,
+  });
 };
 
 export const toggleForumReaction = async (payload: {

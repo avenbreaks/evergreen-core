@@ -381,6 +381,74 @@ test("forum post detail route forwards comments pagination query", async (t) => 
   });
 });
 
+test("forum moderation list route forwards filters", async (t) => {
+  let receivedInput: unknown = null;
+
+  const app = await buildForumTestApp({
+    listForumReportsForModeration: async (input) => {
+      receivedInput = input;
+      return {
+        reports: [],
+        nextCursor: null,
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/forum/mod/reports?status=open&limit=25&cursor=33333333-3333-4333-8333-333333333333",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(receivedInput, {
+    moderatorUserId: TEST_USER_ID,
+    status: "open",
+    limit: 25,
+    cursor: TEST_COMMENT_ID,
+  });
+});
+
+test("forum moderation resolve route forwards payload", async (t) => {
+  let receivedInput: unknown = null;
+
+  const app = await buildForumTestApp({
+    resolveForumReportAsModerator: async (input) => {
+      receivedInput = input;
+      return {
+        reportId: input.reportId,
+        previousStatus: "open",
+        status: input.status,
+        reviewedByUserId: TEST_USER_ID,
+        reviewedAt: new Date(),
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const reportId = "55555555-5555-4555-8555-555555555555";
+  const response = await app.inject({
+    method: "PATCH",
+    url: `/api/forum/mod/reports/${reportId}`,
+    payload: {
+      status: "dismissed",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(receivedInput, {
+    moderatorUserId: TEST_USER_ID,
+    reportId,
+    status: "dismissed",
+  });
+});
+
 test("forum protected write route rejects missing auth", async (t) => {
   const app = await buildForumTestApp({
     requireAuthSessionMiddleware: async () => {

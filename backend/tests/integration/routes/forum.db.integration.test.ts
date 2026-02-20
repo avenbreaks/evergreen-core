@@ -636,6 +636,122 @@ test("forum DB integration rejects forbidden pin by non-owner non-moderator", as
   assert.equal(pinResponse.json().code, "FORBIDDEN");
 });
 
+test("forum DB integration moderator can lock post and resolve report", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const ownerId = randomUUID();
+  const reporterId = randomUUID();
+  const moderatorId = randomUUID();
+
+  await insertUser({ id: ownerId });
+  await insertUser({ id: reporterId });
+  await insertUser({ id: moderatorId, role: "moderator" });
+
+  const app = await buildForumDbTestApp();
+  let postId: string | null = null;
+  let reportId: string | null = null;
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [ownerId, reporterId, moderatorId],
+      targetIds: [postId, reportId].filter((value): value is string => Boolean(value)),
+    });
+  });
+
+  const createPostResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": ownerId,
+    },
+    payload: {
+      title: `Mod target ${ownerId.slice(0, 8)}`,
+      markdown: "moderation target post",
+    },
+  });
+
+  assert.equal(createPostResponse.statusCode, 200);
+  postId = createPostResponse.json().post.id;
+
+  const reportResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/reports",
+    headers: {
+      "x-test-user-id": reporterId,
+    },
+    payload: {
+      targetType: "post",
+      targetId: postId,
+      reason: "integration moderation review",
+    },
+  });
+
+  assert.equal(reportResponse.statusCode, 200);
+  reportId = reportResponse.json().reportId;
+
+  const listOpenResponse = await app.inject({
+    method: "GET",
+    url: "/api/forum/mod/reports?status=open&limit=20",
+    headers: {
+      "x-test-user-id": moderatorId,
+    },
+  });
+
+  assert.equal(listOpenResponse.statusCode, 200);
+  assert.ok(Array.isArray(listOpenResponse.json().reports));
+  assert.ok(listOpenResponse.json().reports.some((report: { id: string }) => report.id === reportId));
+
+  const lockResponse = await app.inject({
+    method: "POST",
+    url: `/api/forum/mod/posts/${postId}/lock`,
+    headers: {
+      "x-test-user-id": moderatorId,
+    },
+    payload: {
+      locked: true,
+    },
+  });
+
+  assert.equal(lockResponse.statusCode, 200);
+  assert.equal(lockResponse.json().locked, true);
+
+  const detailResponse = await app.inject({
+    method: "GET",
+    url: `/api/forum/posts/${postId}`,
+  });
+  assert.equal(detailResponse.statusCode, 200);
+  assert.equal(detailResponse.json().post.isLocked, true);
+
+  const resolveResponse = await app.inject({
+    method: "PATCH",
+    url: `/api/forum/mod/reports/${reportId}`,
+    headers: {
+      "x-test-user-id": moderatorId,
+    },
+    payload: {
+      status: "resolved",
+    },
+  });
+
+  assert.equal(resolveResponse.statusCode, 200);
+  assert.equal(resolveResponse.json().status, "resolved");
+
+  const listResolvedResponse = await app.inject({
+    method: "GET",
+    url: "/api/forum/mod/reports?status=resolved&limit=20",
+    headers: {
+      "x-test-user-id": moderatorId,
+    },
+  });
+
+  assert.equal(listResolvedResponse.statusCode, 200);
+  assert.ok(listResolvedResponse.json().reports.some((report: { id: string; status: string }) => report.id === reportId && report.status === "resolved"));
+});
+
 test("forum DB integration enforces max reply depth", async (t) => {
   if (!(await canConnectToDatabase())) {
     t.skip("integration database is not available");

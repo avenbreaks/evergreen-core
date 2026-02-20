@@ -20,7 +20,12 @@ export {
   listTrendingTags,
   searchForumContent,
 } from "./forum-core.discovery";
-export { createForumReport, lockForumPostAsModerator } from "./forum-core.moderation";
+export {
+  createForumReport,
+  listForumReportsForModeration,
+  lockForumPostAsModerator,
+  resolveForumReportAsModerator,
+} from "./forum-core.moderation";
 export { listForumNotifications, markForumNotificationRead } from "./forum-core.notifications";
 export { getForumProfile, updateForumProfile } from "./forum-core.profile";
 export {

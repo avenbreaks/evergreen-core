@@ -10,6 +10,16 @@ type UserRole = typeof schema.users.$inferSelect.role;
 
 const isModeratorOrAdmin = (role: UserRole | null | undefined): boolean => role === "moderator" || role === "admin";
 
+export const assertModeratorAccess = async (actorUserId: string) => {
+  const actor = await ensureUserExists(actorUserId);
+
+  if (!isModeratorOrAdmin(actor.role)) {
+    throw new HttpError(403, "FORBIDDEN", "Moderator access required");
+  }
+
+  return actor;
+};
+
 export const assertCanPinPost = async (input: { actorUserId: string; postId: string }) => {
   const [actor, post] = await Promise.all([ensureUserExists(input.actorUserId), getPostById(input.postId)]);
 
@@ -33,11 +43,7 @@ export const assertCanPinPost = async (input: { actorUserId: string; postId: str
 };
 
 export const assertCanLockPost = async (input: { actorUserId: string; postId: string }) => {
-  const [actor, post] = await Promise.all([ensureUserExists(input.actorUserId), getPostById(input.postId)]);
-
-  if (!isModeratorOrAdmin(actor.role)) {
-    throw new HttpError(403, "FORBIDDEN", "Moderator access required to lock or unlock posts");
-  }
+  const [actor, post] = await Promise.all([assertModeratorAccess(input.actorUserId), getPostById(input.postId)]);
 
   return {
     actor,

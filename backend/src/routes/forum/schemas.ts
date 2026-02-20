@@ -95,6 +95,20 @@ export const lockBodySchema = z.object({
   locked: z.boolean(),
 });
 
+export const moderationReportListQuerySchema = z.object({
+  status: z.enum(["open", "resolved", "dismissed"]).optional(),
+  limit: z.coerce.number().int().positive().max(200).optional(),
+  cursor: z.string().uuid().optional(),
+});
+
+export const moderationReportParamsSchema = z.object({
+  reportId: z.string().uuid(),
+});
+
+export const moderationResolveBodySchema = z.object({
+  status: z.enum(["resolved", "dismissed"]),
+});
+
 export const notificationListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(200).optional(),
   unreadOnly: z.coerce.boolean().optional(),
