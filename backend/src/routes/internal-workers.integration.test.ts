@@ -6,10 +6,12 @@ import Fastify from "fastify";
 import { HttpError } from "../lib/http-error";
 import type { OpsMetricsSnapshot } from "../services/ops-metrics";
 import type {
+  CancelForumSearchQueueResult,
   ForumSearchSyncQueueStatusSummary,
   RequeueForumSearchDeadLetterResult,
 } from "../services/forum-search-sync-queue";
 import type { ClaimInternalOpsCooldownResult } from "../services/internal-ops-throttle-store";
+import type { ForumSearchControlState } from "../services/forum-search-control";
 
 const INTERNAL_SECRET = "test-internal-worker-secret";
 
@@ -33,11 +35,17 @@ type InternalWorkersDeps = {
   runEnsWebhookRetryOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
   runForumSearchSyncOnce: (_app: unknown, input?: LimitInput) => Promise<unknown>;
   getForumSearchSyncQueueStatusSummary: () => Promise<ForumSearchSyncQueueStatusSummary>;
+  cancelForumSearchQueueEntries: (input?: {
+    limit?: number;
+    statuses?: Array<"pending" | "processing" | "failed" | "dead_letter">;
+  }) => Promise<CancelForumSearchQueueResult>;
   requeueForumSearchDeadLetterEntries: (input?: {
     limit?: number;
     targetType?: "post" | "comment";
     targetIds?: string[];
   }) => Promise<RequeueForumSearchDeadLetterResult>;
+  getForumSearchControlState: () => Promise<ForumSearchControlState>;
+  setForumSearchPauseState: (input: { paused: boolean; reason?: string; pausedBy?: string }) => Promise<ForumSearchControlState>;
   runForumSearchBackfillOnce: (
     _app: unknown,
     input?: { batchSize?: number; includePosts?: boolean; includeComments?: boolean }
@@ -63,7 +71,17 @@ const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorker
     runEnsWebhookRetryOnce: unexpected("runEnsWebhookRetryOnce"),
     runForumSearchSyncOnce: unexpected("runForumSearchSyncOnce"),
     getForumSearchSyncQueueStatusSummary: unexpected("getForumSearchSyncQueueStatusSummary"),
+    cancelForumSearchQueueEntries: unexpected("cancelForumSearchQueueEntries"),
     requeueForumSearchDeadLetterEntries: unexpected("requeueForumSearchDeadLetterEntries"),
+    getForumSearchControlState: async () => ({
+      worker: "forum-search",
+      paused: false,
+      pauseReason: null,
+      pausedBy: null,
+      pausedAt: null,
+      updatedAt: null,
+    }),
+    setForumSearchPauseState: unexpected("setForumSearchPauseState"),
     runForumSearchBackfillOnce: unexpected("runForumSearchBackfillOnce"),
     runOpsRetentionOnce: unexpected("runOpsRetentionOnce"),
     getInternalWorkerStatusSummary: unexpected("getInternalWorkerStatusSummary"),
@@ -421,6 +439,89 @@ test("internal workers forum search requeue endpoint forwards filters", async (t
   });
 });
 
+test("internal workers forum search pause endpoint updates control state", async (t) => {
+  let receivedInput: { paused: boolean; reason?: string; pausedBy?: string } | null = null;
+
+  const app = await buildInternalWorkersTestApp({
+    setForumSearchPauseState: async (input) => {
+      receivedInput = input;
+      return {
+        worker: "forum-search",
+        paused: input.paused,
+        pauseReason: input.reason ?? null,
+        pausedBy: input.pausedBy ?? null,
+        pausedAt: input.paused ? new Date() : null,
+        updatedAt: new Date(),
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/pause",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {
+      paused: true,
+      reason: "incident ongoing",
+      pausedBy: "oncall",
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().worker, "forum-search-pause");
+  assert.equal(response.json().state.paused, true);
+  assert.deepEqual(receivedInput, {
+    paused: true,
+    reason: "incident ongoing",
+    pausedBy: "oncall",
+  });
+});
+
+test("internal workers forum search cancel queue endpoint forwards filters", async (t) => {
+  let receivedInput: { limit?: number; statuses?: Array<"pending" | "processing" | "failed" | "dead_letter"> } | null = null;
+
+  const app = await buildInternalWorkersTestApp({
+    cancelForumSearchQueueEntries: async (input) => {
+      receivedInput = input ?? null;
+      return {
+        selected: 3,
+        cancelled: 3,
+        limit: input?.limit ?? 0,
+        statuses: input?.statuses ?? ["pending", "processing", "failed"],
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/cancel-queue",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {
+      limit: 100,
+      statuses: ["pending", "failed"],
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().worker, "forum-search-cancel-queue");
+  assert.deepEqual(receivedInput, {
+    limit: 100,
+    statuses: ["pending", "failed"],
+  });
+});
+
 test("internal workers forum search reindex endpoint orchestrates backfill and sync", async (t) => {
   let receivedBackfillInput: { batchSize?: number; includePosts?: boolean; includeComments?: boolean } | null = null;
   let receivedSyncInput: { limit?: number } | null = null;
@@ -482,6 +583,35 @@ test("internal workers forum search reindex endpoint orchestrates backfill and s
   assert.deepEqual(receivedSyncInput, {
     limit: 10,
   });
+});
+
+test("internal workers forum search reindex endpoint rejects while paused", async (t) => {
+  const app = await buildInternalWorkersTestApp({
+    getForumSearchControlState: async () => ({
+      worker: "forum-search",
+      paused: true,
+      pauseReason: "incident",
+      pausedBy: "oncall",
+      pausedAt: new Date(),
+      updatedAt: new Date(),
+    }),
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/reindex",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {},
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.json().code, "FORUM_SEARCH_PAUSED");
 });
 
 test("internal workers forum search requeue endpoint is rate limited", async (t) => {
@@ -620,6 +750,68 @@ test("internal workers forum search reindex endpoint is rate limited", async (t)
   assert.equal(second.statusCode, 429);
   assert.equal(second.json().code, "INTERNAL_OPS_RATE_LIMITED");
   assert.equal(backfillCalls, 1);
+});
+
+test("internal workers forum search cancel queue endpoint is rate limited", async (t) => {
+  const claimCounts = new Map<string, number>();
+  let cancelCalls = 0;
+
+  const app = await buildInternalWorkersTestApp({
+    claimInternalOpsCooldown: async ({ operation, cooldownMs }) => {
+      const nextCount = (claimCounts.get(operation) ?? 0) + 1;
+      claimCounts.set(operation, nextCount);
+
+      if (nextCount > 1) {
+        return {
+          allowed: false,
+          retryAfterMs: cooldownMs,
+          nextAllowedAt: new Date(Date.now() + cooldownMs),
+        };
+      }
+
+      return {
+        allowed: true,
+        retryAfterMs: 0,
+        nextAllowedAt: new Date(Date.now() + cooldownMs),
+      };
+    },
+    cancelForumSearchQueueEntries: async () => {
+      cancelCalls += 1;
+      return {
+        selected: 1,
+        cancelled: 1,
+        limit: 1,
+        statuses: ["pending"],
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const first = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/cancel-queue",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {},
+  });
+
+  const second = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/cancel-queue",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {},
+  });
+
+  assert.equal(first.statusCode, 200);
+  assert.equal(second.statusCode, 429);
+  assert.equal(second.json().code, "INTERNAL_OPS_RATE_LIMITED");
+  assert.equal(cancelCalls, 1);
 });
 
 test("internal workers route returns worker status summary", async (t) => {

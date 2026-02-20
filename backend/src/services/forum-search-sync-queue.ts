@@ -25,6 +25,11 @@ type RequeueForumSearchDeadLetterInput = {
   targetIds?: string[];
 };
 
+type CancelForumSearchQueueInput = {
+  limit?: number;
+  statuses?: ForumSearchSyncStatus[];
+};
+
 export type ForumSearchSyncQueueStatusSummary = {
   pending: number;
   processing: number;
@@ -45,8 +50,16 @@ export type RequeueForumSearchDeadLetterResult = {
   targetType: ForumSearchSyncTargetType | null;
 };
 
+export type CancelForumSearchQueueResult = {
+  selected: number;
+  cancelled: number;
+  limit: number;
+  statuses: ForumSearchSyncStatus[];
+};
+
 const RETRYABLE_STATUSES = ["pending", "failed"] as const;
 const QUEUE_STATUSES = ["pending", "processing", "failed", "dead_letter"] as const;
+const ACTIVE_QUEUE_STATUSES = ["pending", "processing", "failed"] as const;
 
 const clampRequeueLimit = (value: number | undefined): number => {
   if (!value || !Number.isInteger(value)) {
@@ -54,6 +67,14 @@ const clampRequeueLimit = (value: number | undefined): number => {
   }
 
   return Math.max(1, Math.min(value, 1000));
+};
+
+const clampCancelLimit = (value: number | undefined): number => {
+  if (!value || !Number.isInteger(value)) {
+    return backendEnv.forumSearchSyncBatchLimit;
+  }
+
+  return Math.max(1, Math.min(value, 5000));
 };
 
 const clampBatchLimit = (value: number | undefined): number => {
@@ -334,5 +355,41 @@ export const requeueForumSearchDeadLetterEntries = async (
     requeued: selected.length,
     limit,
     targetType: input.targetType ?? null,
+  };
+};
+
+export const cancelForumSearchQueueEntries = async (
+  input: CancelForumSearchQueueInput = {}
+): Promise<CancelForumSearchQueueResult> => {
+  const limit = clampCancelLimit(input.limit);
+  const statuses =
+    input.statuses && input.statuses.length > 0
+      ? [...new Set(input.statuses.filter((status): status is ForumSearchSyncStatus => QUEUE_STATUSES.includes(status)))]
+      : [...ACTIVE_QUEUE_STATUSES];
+
+  const selected = await authDb
+    .select({ id: schema.forumSearchSyncQueue.id })
+    .from(schema.forumSearchSyncQueue)
+    .where(inArray(schema.forumSearchSyncQueue.status, statuses))
+    .orderBy(asc(schema.forumSearchSyncQueue.createdAt))
+    .limit(limit);
+
+  if (selected.length === 0) {
+    return {
+      selected: 0,
+      cancelled: 0,
+      limit,
+      statuses,
+    };
+  }
+
+  const selectedIds = selected.map((row) => row.id);
+  await authDb.delete(schema.forumSearchSyncQueue).where(inArray(schema.forumSearchSyncQueue.id, selectedIds));
+
+  return {
+    selected: selected.length,
+    cancelled: selected.length,
+    limit,
+    statuses,
   };
 };

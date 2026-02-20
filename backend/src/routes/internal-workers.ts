@@ -4,12 +4,15 @@ import { z } from "zod";
 import { createInternalOpsThrottleMiddleware } from "../middleware/internal-ops-throttle";
 import { requireSecureTransportMiddleware } from "../middleware/require-secure-transport";
 import type {
+  CancelForumSearchQueueResult,
   ForumSearchSyncQueueStatusSummary,
   RequeueForumSearchDeadLetterResult,
 } from "../services/forum-search-sync-queue";
+import { HttpError } from "../lib/http-error";
 import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
 import { getOpsMetricsSnapshot } from "../services/ops-metrics";
 import type { claimInternalOpsCooldown } from "../services/internal-ops-throttle-store";
+import type { ForumSearchControlState } from "../services/forum-search-control";
 
 type InternalWorkersRouteDependencies = {
   runEnsReconciliationOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number; dryRun?: boolean }) => Promise<unknown>;
@@ -18,11 +21,17 @@ type InternalWorkersRouteDependencies = {
   runEnsWebhookRetryOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
   runForumSearchSyncOnce: (app: unknown, input?: { limit?: number }) => Promise<unknown>;
   getForumSearchSyncQueueStatusSummary: () => Promise<ForumSearchSyncQueueStatusSummary>;
+  cancelForumSearchQueueEntries: (input?: {
+    limit?: number;
+    statuses?: Array<"pending" | "processing" | "failed" | "dead_letter">;
+  }) => Promise<CancelForumSearchQueueResult>;
   requeueForumSearchDeadLetterEntries: (input?: {
     limit?: number;
     targetType?: "post" | "comment";
     targetIds?: string[];
   }) => Promise<RequeueForumSearchDeadLetterResult>;
+  getForumSearchControlState: () => Promise<ForumSearchControlState>;
+  setForumSearchPauseState: (input: { paused: boolean; reason?: string; pausedBy?: string }) => Promise<ForumSearchControlState>;
   runForumSearchBackfillOnce: (
     app: unknown,
     input?: { batchSize?: number; includePosts?: boolean; includeComments?: boolean }
@@ -81,8 +90,20 @@ const requeueForumSearchDeadLetterBodySchema = z.object({
   targetIds: z.array(z.string().uuid()).max(1000).optional(),
 });
 
+const pauseForumSearchBodySchema = z.object({
+  paused: z.boolean(),
+  reason: z.string().max(1000).optional(),
+  pausedBy: z.string().max(120).optional(),
+});
+
+const cancelForumSearchQueueBodySchema = z.object({
+  limit: z.coerce.number().int().positive().max(5000).optional(),
+  statuses: z.array(z.enum(["pending", "processing", "failed", "dead_letter"])).max(4).optional(),
+});
+
 const FORUM_SEARCH_REINDEX_COOLDOWN_MS = 30_000;
 const FORUM_SEARCH_REQUEUE_COOLDOWN_MS = 5_000;
+const FORUM_SEARCH_CANCEL_COOLDOWN_MS = 5_000;
 
 const hasCompleteDependencies = (
   deps: Partial<InternalWorkersRouteDependencies> | undefined
@@ -98,7 +119,10 @@ const hasCompleteDependencies = (
     typeof deps.runEnsWebhookRetryOnce === "function" &&
     typeof deps.runForumSearchSyncOnce === "function" &&
     typeof deps.getForumSearchSyncQueueStatusSummary === "function" &&
+    typeof deps.cancelForumSearchQueueEntries === "function" &&
     typeof deps.requeueForumSearchDeadLetterEntries === "function" &&
+    typeof deps.getForumSearchControlState === "function" &&
+    typeof deps.setForumSearchPauseState === "function" &&
     typeof deps.runForumSearchBackfillOnce === "function" &&
     typeof deps.runOpsRetentionOnce === "function" &&
     typeof deps.getInternalWorkerStatusSummary === "function" &&
@@ -115,6 +139,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     webhookRetryJob,
     forumSearchSyncJob,
     forumSearchSyncQueueService,
+    forumSearchControlService,
     internalOpsThrottleService,
     forumSearchBackfillJob,
     opsRetentionJob,
@@ -126,6 +151,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     import("../jobs/ens-webhook-retry"),
     import("../jobs/forum-search-sync"),
     import("../services/forum-search-sync-queue"),
+    import("../services/forum-search-control"),
     import("../services/internal-ops-throttle-store"),
     import("../jobs/forum-search-backfill"),
     import("../jobs/ops-retention"),
@@ -139,7 +165,10 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     runEnsWebhookRetryOnce: webhookRetryJob.runEnsWebhookRetryOnce as InternalWorkersRouteDependencies["runEnsWebhookRetryOnce"],
     runForumSearchSyncOnce: forumSearchSyncJob.runForumSearchSyncOnce as InternalWorkersRouteDependencies["runForumSearchSyncOnce"],
     getForumSearchSyncQueueStatusSummary: forumSearchSyncQueueService.getForumSearchSyncQueueStatusSummary,
+    cancelForumSearchQueueEntries: forumSearchSyncQueueService.cancelForumSearchQueueEntries,
     requeueForumSearchDeadLetterEntries: forumSearchSyncQueueService.requeueForumSearchDeadLetterEntries,
+    getForumSearchControlState: forumSearchControlService.getForumSearchControlState,
+    setForumSearchPauseState: forumSearchControlService.setForumSearchPauseState,
     runForumSearchBackfillOnce:
       forumSearchBackfillJob.runForumSearchBackfillOnce as InternalWorkersRouteDependencies["runForumSearchBackfillOnce"],
     runOpsRetentionOnce: opsRetentionJob.runOpsRetentionOnce as InternalWorkersRouteDependencies["runOpsRetentionOnce"],
@@ -166,6 +195,12 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   const forumSearchRequeueThrottle = createInternalOpsThrottleMiddleware({
     operation: "forum-search-requeue-dead-letter",
     cooldownMs: FORUM_SEARCH_REQUEUE_COOLDOWN_MS,
+    claim: deps.claimInternalOpsCooldown,
+  });
+
+  const forumSearchCancelThrottle = createInternalOpsThrottleMiddleware({
+    operation: "forum-search-cancel-queue",
+    cooldownMs: FORUM_SEARCH_CANCEL_COOLDOWN_MS,
     claim: deps.claimInternalOpsCooldown,
   });
 
@@ -317,6 +352,15 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
     async (request) => {
       const body = runForumSearchReindexBodySchema.parse(request.body ?? {});
 
+      const control = await deps.getForumSearchControlState();
+      if (control.paused) {
+        throw new HttpError(409, "FORUM_SEARCH_PAUSED", "Forum search queue is paused", {
+          pausedAt: control.pausedAt,
+          pauseReason: control.pauseReason,
+          pausedBy: control.pausedBy,
+        });
+      }
+
       const backfill = await deps.runForumSearchBackfillOnce(app, {
         batchSize: body.batchSize,
         includePosts: body.includePosts,
@@ -367,6 +411,7 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
             oldestActiveAgeSeconds,
             oldestDeadLetterAgeSeconds,
           },
+          control: await deps.getForumSearchControlState(),
           runtime: {
             runTotals: {
               sync: runtimeMetrics.workerRunTotals["forum-search-sync"],
@@ -378,6 +423,47 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
             },
           },
         },
+      };
+    }
+  );
+
+  app.post(
+    "/api/internal/workers/forum-search/pause",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
+    },
+    async (request) => {
+      const body = pauseForumSearchBodySchema.parse(request.body ?? {});
+      const state = await deps.setForumSearchPauseState({
+        paused: body.paused,
+        reason: body.reason,
+        pausedBy: body.pausedBy,
+      });
+
+      return {
+        acknowledged: true,
+        worker: "forum-search-pause",
+        state,
+      };
+    }
+  );
+
+  app.post(
+    "/api/internal/workers/forum-search/cancel-queue",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware, forumSearchCancelThrottle],
+    },
+    async (request) => {
+      const body = cancelForumSearchQueueBodySchema.parse(request.body ?? {});
+      const run = await deps.cancelForumSearchQueueEntries({
+        limit: body.limit,
+        statuses: body.statuses,
+      });
+
+      return {
+        acknowledged: true,
+        worker: "forum-search-cancel-queue",
+        run,
       };
     }
   );

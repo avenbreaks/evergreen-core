@@ -57,6 +57,13 @@
       "when": 1772064000000,
       "tag": "0007_internal_ops_throttle",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1772150400000,
+      "tag": "0008_internal_worker_controls",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { backendEnv } from "../config/env";
 import { runWithEnsAdvisoryLock } from "../services/ens-reconciliation-lock";
 import { recordWorkerRunMetric } from "../services/ops-metrics";
+import { getForumSearchControlState } from "../services/forum-search-control";
 import { syncForumSearchQueue } from "../services/forum-search-sync";
 
 const FORUM_SEARCH_SYNC_LOCK_RESOURCE = 20260225;
@@ -17,6 +18,30 @@ export const runForumSearchSyncOnce = async (app: FastifyInstance, input: RunFor
   const syncRunId = randomUUID();
 
   try {
+    const control = await getForumSearchControlState();
+    if (control.paused) {
+      app.log.info(
+        {
+          syncRunId,
+          pausedAt: control.pausedAt,
+          pauseReason: control.pauseReason,
+          pausedBy: control.pausedBy,
+        },
+        "Forum search sync run skipped: worker is paused"
+      );
+      recordWorkerRunMetric({
+        worker: "forum-search-sync",
+        outcome: "skipped",
+        runId: syncRunId,
+      });
+
+      return {
+        syncRunId,
+        skipped: true,
+        paused: true,
+      } as const;
+    }
+
     const lockResult = await runWithEnsAdvisoryLock({
       resource: FORUM_SEARCH_SYNC_LOCK_RESOURCE,
       task: async () => {

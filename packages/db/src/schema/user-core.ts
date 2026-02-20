@@ -211,3 +211,18 @@ export const internalOpsThrottle = pgTable(
     nextAllowedIdx: index("internal_ops_throttle_next_allowed_at_idx").on(table.nextAllowedAt),
   })
 );
+
+export const internalWorkerControls = pgTable(
+  "internal_worker_controls",
+  {
+    worker: varchar("worker", { length: 120 }).primaryKey(),
+    isPaused: boolean("is_paused").notNull().default(false),
+    pauseReason: text("pause_reason"),
+    pausedBy: varchar("paused_by", { length: 120 }),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pausedIdx: index("internal_worker_controls_paused_idx").on(table.worker, table.isPaused),
+  })
+);
