@@ -2,6 +2,8 @@
 
 Open source forum + social networking platform for developers, with Better Auth, SIWE, ENS (private chain), and modular monorepo architecture.
 
+![Evergreen Images](./.github/evergreen_images.png)
+
 ## Workspace
 - `backend`: Fastify API scaffold.
 - `packages/db`: Drizzle schema, migration, and db client.
