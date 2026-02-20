@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: devparty
+          POSTGRES_PASSWORD: devparty
+          POSTGRES_DB: devpartydb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U devparty -d devpartydb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://devparty:devparty@localhost:5432/devpartydb
+      BETTER_AUTH_SECRET: ci-better-auth-secret-32-characters-minimum
+      BETTER_AUTH_URL: http://localhost:3001
+      BETTER_AUTH_TRUSTED_ORIGINS: http://localhost:3000,http://localhost:3001
+      WEBHOOK_SECRET: ci-webhook-secret
+      WEBHOOK_IP_ALLOWLIST: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.5.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+
+      - name: Typecheck backend
+        run: pnpm backend:typecheck
+
+      - name: Test backend
+        run: pnpm backend:test
+
+      - name: Build backend
+        run: pnpm backend:build
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
