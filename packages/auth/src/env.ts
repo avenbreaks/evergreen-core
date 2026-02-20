@@ -44,6 +44,11 @@ const parsePositiveInt = (value: string | undefined, fallback: number): number =
   return parsed;
 };
 
+const parseRateLimitStorage = (value: string | undefined): "memory" | "database" => {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "database" ? "database" : "memory";
+};
+
 const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (!value) {
     return fallback;
@@ -127,7 +132,16 @@ export const authEnv = {
     unosend: {
       baseUrl: process.env.UNOSEND_BASE_URL ?? "https://www.unosend.co/api/v1",
       apiKey: unosendApiKey,
+      timeoutMs: parsePositiveInt(process.env.UNOSEND_REQUEST_TIMEOUT_MS, 10000),
     },
+  },
+  security: {
+    allowDifferentLinkedEmails: parseBoolean(process.env.AUTH_ALLOW_DIFFERENT_LINKED_EMAILS, false),
+    requireEmailVerification: parseBoolean(process.env.AUTH_REQUIRE_EMAIL_VERIFICATION, true),
+  },
+  rateLimit: {
+    enabled: parseBoolean(process.env.AUTH_RATE_LIMIT_ENABLED, true),
+    storage: parseRateLimitStorage(process.env.AUTH_RATE_LIMIT_STORAGE),
   },
   siwe: {
     domain: process.env.SIWE_DOMAIN ?? "localhost",

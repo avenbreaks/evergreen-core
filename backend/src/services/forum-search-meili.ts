@@ -50,18 +50,36 @@ const requestMeili = async (path: string, init?: RequestInit): Promise<unknown> 
     throw new Error("Meilisearch is not configured");
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      ...(backendEnv.meiliApiKey
-        ? {
-            Authorization: `Bearer ${backendEnv.meiliApiKey}`,
-          }
-        : {}),
-      "Content-Type": "application/json",
-    },
-  });
+  const controller = new AbortController();
+  const timeoutMs = backendEnv.forumSearchMeiliTimeoutMs;
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        ...(init?.headers ?? {}),
+        ...(backendEnv.meiliApiKey
+          ? {
+              Authorization: `Bearer ${backendEnv.meiliApiKey}`,
+            }
+          : {}),
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Meilisearch request timed out after ${timeoutMs}ms`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw await toMeiliError(response);

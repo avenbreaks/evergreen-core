@@ -66,8 +66,8 @@ importers:
         specifier: ^0.44.5
         version: 0.44.7(@types/pg@8.16.0)(kysely@0.28.11)(pg@8.18.0)
       nodemailer:
-        specifier: ^6.10.1
-        version: 6.10.1
+        specifier: ^7.0.11
+        version: 7.0.13
       siwe:
         specifier: ^3.0.0
         version: 3.0.0(ethers@6.16.0)
@@ -1231,8 +1231,8 @@ packages:
     resolution: {integrity: sha512-yJBmDJr18xy47dbNVlHcgdPrulSn1nhSE6Ns9vTG+Nx9VPT6iV1MD6aQFp/t52zpf82FhLLTXAXr30NuCnxvwA==}
     engines: {node: ^20.0.0 || >=22.0.0}
 
-  nodemailer@6.10.1:
-    resolution: {integrity: sha512-Z+iLaBGVaSjbIzQ4pX6XV41HrooLsQ10ZWPUehGmuantvzWoDVBnmsdUcOIDM1t+yPor5pDhVlDESgOMEGxhHA==}
+  nodemailer@7.0.13:
+    resolution: {integrity: sha512-PNDFSJdP+KFgdsG3ZzMXCgquO7I6McjY2vlqILjtJd0hy8wEvtugS9xKRF2NWlPNGxvLCXlTNIae4serI7dinw==}
     engines: {node: '>=6.0.0'}
 
   object-assign@4.1.1:
@@ -2350,7 +2350,7 @@ snapshots:
 
   nanostores@1.1.0: {}
 
-  nodemailer@6.10.1: {}
+  nodemailer@7.0.13: {}
 
   object-assign@4.1.1: {}
 

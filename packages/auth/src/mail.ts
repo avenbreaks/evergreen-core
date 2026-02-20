@@ -73,20 +73,38 @@ const sendUsingUnosend = async (input: SendAuthMailInput): Promise<void> => {
     throw new Error("UNOSEND_API_KEY is missing for Unosend provider");
   }
 
-  const response = await fetch(`${authEnv.mail.unosend.baseUrl}/emails`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: authEnv.mail.from,
-      to: toRecipientList(input.to),
-      subject: input.subject,
-      html: input.html,
-      ...(input.text ? { text: input.text } : {}),
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutMs = authEnv.mail.unosend.timeoutMs;
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${authEnv.mail.unosend.baseUrl}/emails`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: authEnv.mail.from,
+        to: toRecipientList(input.to),
+        subject: input.subject,
+        html: input.html,
+        ...(input.text ? { text: input.text } : {}),
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Unosend request timed out after ${timeoutMs}ms`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const body = await response.text();

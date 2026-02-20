@@ -38,7 +38,7 @@ export const auth = betterAuth({
     accountLinking: {
       enabled: true,
       trustedProviders,
-      allowDifferentEmails: true,
+      allowDifferentEmails: authEnv.security.allowDifferentLinkedEmails,
     },
   },
   session: {
@@ -47,7 +47,7 @@ export const auth = betterAuth({
   },
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: false,
+    requireEmailVerification: authEnv.security.requireEmailVerification,
     minPasswordLength: 8,
     sendResetPassword: async ({ user, url }) => {
       await sendResetPasswordEmail({
@@ -69,8 +69,8 @@ export const auth = betterAuth({
   },
   ...(socialProviders ? { socialProviders } : {}),
   rateLimit: {
-    enabled: true,
-    storage: "memory",
+    enabled: authEnv.rateLimit.enabled,
+    storage: authEnv.rateLimit.storage,
   },
   advanced: {
     useSecureCookies: authEnv.nodeEnv === "production",

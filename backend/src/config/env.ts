@@ -81,6 +81,7 @@ const envSchema = z.object({
   MEILI_URL: z.string().optional(),
   MEILI_API_KEY: z.string().optional(),
   MEILI_FORUM_INDEX_UID: z.string().min(1).default("forum_content"),
+  FORUM_SEARCH_MEILI_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   ALERT_WEBHOOK_DEAD_LETTER_THRESHOLD: z.coerce.number().int().positive().default(10),
   ALERT_WEBHOOK_RETRY_DEPTH_THRESHOLD: z.coerce.number().int().positive().default(3),
   ALERT_WORKER_SKIP_STREAK_THRESHOLD: z.coerce.number().int().positive().default(3),
@@ -150,6 +151,7 @@ export type BackendEnv = {
   meiliUrl: string | null;
   meiliApiKey: string | null;
   meiliForumIndexUid: string;
+  forumSearchMeiliTimeoutMs: number;
   alertWebhookDeadLetterThreshold: number;
   alertWebhookRetryDepthThreshold: number;
   alertWorkerSkipStreakThreshold: number;
@@ -196,6 +198,7 @@ export const backendEnv: BackendEnv = {
   meiliUrl: parsed.data.MEILI_URL?.trim() || null,
   meiliApiKey: parsed.data.MEILI_API_KEY?.trim() || null,
   meiliForumIndexUid: parsed.data.MEILI_FORUM_INDEX_UID,
+  forumSearchMeiliTimeoutMs: parsed.data.FORUM_SEARCH_MEILI_TIMEOUT_MS,
   alertWebhookDeadLetterThreshold: parsed.data.ALERT_WEBHOOK_DEAD_LETTER_THRESHOLD,
   alertWebhookRetryDepthThreshold: parsed.data.ALERT_WEBHOOK_RETRY_DEPTH_THRESHOLD,
   alertWorkerSkipStreakThreshold: parsed.data.ALERT_WORKER_SKIP_STREAK_THRESHOLD,
