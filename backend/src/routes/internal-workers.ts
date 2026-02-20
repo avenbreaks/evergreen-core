@@ -10,6 +10,7 @@ import type {
 } from "../services/forum-search-sync-queue";
 import { HttpError } from "../lib/http-error";
 import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
+import type { ForumMvpStatusSummary } from "../services/forum-mvp-status";
 import { getOpsMetricsSnapshot } from "../services/ops-metrics";
 import type { claimInternalOpsCooldown } from "../services/internal-ops-throttle-store";
 import type { ForumSearchControlState } from "../services/forum-search-control";
@@ -42,6 +43,7 @@ type InternalWorkersRouteDependencies = {
     deadLetterRetentionDays?: number;
   }) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
+  getForumMvpStatusSummary: () => Promise<ForumMvpStatusSummary>;
   getOpsMetricsSnapshot: typeof getOpsMetricsSnapshot;
   claimInternalOpsCooldown: typeof claimInternalOpsCooldown;
 };
@@ -126,6 +128,7 @@ const hasCompleteDependencies = (
     typeof deps.runForumSearchBackfillOnce === "function" &&
     typeof deps.runOpsRetentionOnce === "function" &&
     typeof deps.getInternalWorkerStatusSummary === "function" &&
+    typeof deps.getForumMvpStatusSummary === "function" &&
     typeof deps.getOpsMetricsSnapshot === "function" &&
     typeof deps.claimInternalOpsCooldown === "function"
   );
@@ -143,6 +146,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     internalOpsThrottleService,
     forumSearchBackfillJob,
     opsRetentionJob,
+    forumMvpStatusService,
     workerStatusService,
   ] = await Promise.all([
     import("../jobs/ens-reconciliation"),
@@ -155,6 +159,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     import("../services/internal-ops-throttle-store"),
     import("../jobs/forum-search-backfill"),
     import("../jobs/ops-retention"),
+    import("../services/forum-mvp-status"),
     import("../services/internal-worker-status"),
   ]);
 
@@ -173,6 +178,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
       forumSearchBackfillJob.runForumSearchBackfillOnce as InternalWorkersRouteDependencies["runForumSearchBackfillOnce"],
     runOpsRetentionOnce: opsRetentionJob.runOpsRetentionOnce as InternalWorkersRouteDependencies["runOpsRetentionOnce"],
     getInternalWorkerStatusSummary: workerStatusService.getInternalWorkerStatusSummary,
+    getForumMvpStatusSummary: forumMvpStatusService.getForumMvpStatusSummary,
     getOpsMetricsSnapshot,
     claimInternalOpsCooldown: internalOpsThrottleService.claimInternalOpsCooldown,
   };
@@ -499,6 +505,22 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
 
       return {
         acknowledged: true,
+        status,
+      };
+    }
+  );
+
+  app.get(
+    "/api/internal/forum/mvp/status",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
+    },
+    async () => {
+      const status = await deps.getForumMvpStatusSummary();
+
+      return {
+        acknowledged: true,
+        scope: "forum-mvp",
         status,
       };
     }

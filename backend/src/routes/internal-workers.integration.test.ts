@@ -12,6 +12,7 @@ import type {
 } from "../services/forum-search-sync-queue";
 import type { ClaimInternalOpsCooldownResult } from "../services/internal-ops-throttle-store";
 import type { ForumSearchControlState } from "../services/forum-search-control";
+import type { ForumMvpStatusSummary } from "../services/forum-mvp-status";
 
 const INTERNAL_SECRET = "test-internal-worker-secret";
 
@@ -55,6 +56,7 @@ type InternalWorkersDeps = {
     input?: { batchLimit?: number; processedRetentionDays?: number; deadLetterRetentionDays?: number }
   ) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
+  getForumMvpStatusSummary: () => Promise<ForumMvpStatusSummary>;
   getOpsMetricsSnapshot: () => OpsMetricsSnapshot;
   claimInternalOpsCooldown: (input: { operation: string; cooldownMs: number; now?: Date }) => Promise<ClaimInternalOpsCooldownResult>;
 };
@@ -85,6 +87,7 @@ const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorker
     runForumSearchBackfillOnce: unexpected("runForumSearchBackfillOnce"),
     runOpsRetentionOnce: unexpected("runOpsRetentionOnce"),
     getInternalWorkerStatusSummary: unexpected("getInternalWorkerStatusSummary"),
+    getForumMvpStatusSummary: unexpected("getForumMvpStatusSummary"),
     getOpsMetricsSnapshot: () => {
       throw new Error("Unexpected dependency call: getOpsMetricsSnapshot");
     },
@@ -146,6 +149,23 @@ const createOpsMetricsSnapshot = (): OpsMetricsSnapshot => ({
     "forum-search-sync": 0,
     "forum-search-backfill": 0,
   },
+});
+
+const createForumMvpStatusSummary = (): ForumMvpStatusSummary => ({
+  completed: 0,
+  partial: 0,
+  missing: 0,
+  total: 0,
+  readinessPercent: 0,
+  checklist: [],
+  signals: {
+    publishedPosts: 0,
+    publishedComments: 0,
+    openReports: 0,
+    queuedSearchJobs: 0,
+    notificationRows: 0,
+  },
+  generatedAt: new Date(),
 });
 
 test("internal workers route rejects invalid secret", async (t) => {
@@ -812,6 +832,45 @@ test("internal workers forum search cancel queue endpoint is rate limited", asyn
   assert.equal(second.statusCode, 429);
   assert.equal(second.json().code, "INTERNAL_OPS_RATE_LIMITED");
   assert.equal(cancelCalls, 1);
+});
+
+test("internal forum MVP status endpoint returns checklist summary", async (t) => {
+  const app = await buildInternalWorkersTestApp({
+    getForumMvpStatusSummary: async () => {
+      const summary = createForumMvpStatusSummary();
+      summary.completed = 16;
+      summary.partial = 2;
+      summary.total = 18;
+      summary.readinessPercent = 94;
+      summary.checklist = [
+        {
+          key: "post_crud",
+          label: "Create/update/delete post",
+          status: "complete",
+          note: "ready",
+        },
+      ];
+      return summary;
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/internal/forum/mvp/status",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().scope, "forum-mvp");
+  assert.equal(response.json().status.completed, 16);
+  assert.equal(response.json().status.readinessPercent, 94);
+  assert.equal(response.json().status.checklist[0].key, "post_crud");
 });
 
 test("internal workers route returns worker status summary", async (t) => {

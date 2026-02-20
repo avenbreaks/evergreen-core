@@ -69,6 +69,7 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/internal/workers/forum-search/cancel-queue` (auth via `x-internal-secret`)
   - `GET /api/internal/workers/forum-search/status` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/forum-search/requeue-dead-letter` (auth via `x-internal-secret`)
+  - `GET /api/internal/forum/mvp/status` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/ops-retention/run` (auth via `x-internal-secret`)
   - `GET /api/internal/workers/status` (auth via `x-internal-secret`)
 - Metrics:
@@ -104,6 +105,9 @@ Backend API untuk Evergreen Devparty dengan fokus:
 - Dead-letter queue bisa direqueue via `POST /api/internal/workers/forum-search/requeue-dead-letter`.
 - Endpoint reindex, requeue, dan cancel-queue punya cooldown internal untuk mencegah trigger burst.
 - Bila Meilisearch tidak dikonfigurasi/bermasalah, search otomatis fallback ke query DB.
+
+## Forum discovery notes
+- `GET /api/forum/top-topics` menggunakan ranking creator berdasarkan agregat popularitas topik (reaction + comment + share), bukan ranking post tunggal.
 
 ## ENS webhook internal contract
 - Endpoint: `POST /api/webhooks/ens/tx`
