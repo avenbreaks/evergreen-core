@@ -13,6 +13,7 @@ import type {
 import type { ClaimInternalOpsCooldownResult } from "../services/internal-ops-throttle-store";
 import type { ForumSearchControlState } from "../services/forum-search-control";
 import type { ForumMvpStatusSummary } from "../services/forum-mvp-status";
+import type { InternalOpsAuditEvent } from "../services/internal-ops-audit";
 
 const INTERNAL_SECRET = "test-internal-worker-secret";
 
@@ -39,11 +40,13 @@ type InternalWorkersDeps = {
   cancelForumSearchQueueEntries: (input?: {
     limit?: number;
     statuses?: Array<"pending" | "processing" | "failed" | "dead_letter">;
+    dryRun?: boolean;
   }) => Promise<CancelForumSearchQueueResult>;
   requeueForumSearchDeadLetterEntries: (input?: {
     limit?: number;
     targetType?: "post" | "comment";
     targetIds?: string[];
+    dryRun?: boolean;
   }) => Promise<RequeueForumSearchDeadLetterResult>;
   getForumSearchControlState: () => Promise<ForumSearchControlState>;
   setForumSearchPauseState: (input: { paused: boolean; reason?: string; pausedBy?: string }) => Promise<ForumSearchControlState>;
@@ -57,6 +60,18 @@ type InternalWorkersDeps = {
   ) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
   getForumMvpStatusSummary: () => Promise<ForumMvpStatusSummary>;
+  recordInternalOpsAuditEvent: (input: {
+    operation: string;
+    outcome: "completed" | "failed";
+    actor?: string | null;
+    requestMethod?: string | null;
+    requestPath?: string | null;
+    payload?: Record<string, unknown> | null;
+    result?: Record<string, unknown> | null;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  }) => Promise<string>;
+  listInternalOpsAuditEvents: (input?: { operations?: string[]; limit?: number }) => Promise<InternalOpsAuditEvent[]>;
   getOpsMetricsSnapshot: () => OpsMetricsSnapshot;
   claimInternalOpsCooldown: (input: { operation: string; cooldownMs: number; now?: Date }) => Promise<ClaimInternalOpsCooldownResult>;
 };
@@ -88,6 +103,8 @@ const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorker
     runOpsRetentionOnce: unexpected("runOpsRetentionOnce"),
     getInternalWorkerStatusSummary: unexpected("getInternalWorkerStatusSummary"),
     getForumMvpStatusSummary: unexpected("getForumMvpStatusSummary"),
+    recordInternalOpsAuditEvent: async () => "audit-event-id",
+    listInternalOpsAuditEvents: async () => [],
     getOpsMetricsSnapshot: () => {
       throw new Error("Unexpected dependency call: getOpsMetricsSnapshot");
     },
@@ -413,7 +430,7 @@ test("internal workers forum search status endpoint returns queue and runtime su
 });
 
 test("internal workers forum search requeue endpoint forwards filters", async (t) => {
-  let receivedInput: { limit?: number; targetType?: "post" | "comment"; targetIds?: string[] } | null = null;
+  let receivedInput: { limit?: number; targetType?: "post" | "comment"; targetIds?: string[]; dryRun?: boolean } | null = null;
 
   const app = await buildInternalWorkersTestApp({
     requeueForumSearchDeadLetterEntries: async (input) => {
@@ -421,8 +438,10 @@ test("internal workers forum search requeue endpoint forwards filters", async (t
       return {
         selected: 2,
         requeued: 2,
+        wouldRequeue: 2,
         limit: input?.limit ?? 0,
         targetType: input?.targetType ?? null,
+        dryRun: Boolean(input?.dryRun),
       };
     },
   });
@@ -457,6 +476,103 @@ test("internal workers forum search requeue endpoint forwards filters", async (t
       "22222222-2222-4222-8222-222222222222",
     ],
   });
+});
+
+test("internal workers forum search requeue endpoint supports dry-run mode", async (t) => {
+  let receivedInput: { limit?: number; targetType?: "post" | "comment"; targetIds?: string[]; dryRun?: boolean } | null = null;
+
+  const app = await buildInternalWorkersTestApp({
+    requeueForumSearchDeadLetterEntries: async (input) => {
+      receivedInput = input ?? null;
+      return {
+        selected: 4,
+        requeued: 0,
+        wouldRequeue: 4,
+        limit: input?.limit ?? 0,
+        targetType: input?.targetType ?? null,
+        dryRun: Boolean(input?.dryRun),
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/requeue-dead-letter",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {
+      limit: 10,
+      dryRun: true,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().run.dryRun, true);
+  assert.equal(response.json().run.requeued, 0);
+  assert.equal(response.json().run.wouldRequeue, 4);
+  assert.deepEqual(receivedInput, {
+    limit: 10,
+    dryRun: true,
+  });
+});
+
+test("internal workers forum search requeue endpoint writes completed audit event", async (t) => {
+  let auditCall: {
+    operation: string;
+    outcome: "completed" | "failed";
+    actor?: string | null;
+    payload?: Record<string, unknown> | null;
+    result?: Record<string, unknown> | null;
+  } | null = null;
+
+  const app = await buildInternalWorkersTestApp({
+    requeueForumSearchDeadLetterEntries: async () => ({
+      selected: 1,
+      requeued: 1,
+      wouldRequeue: 1,
+      limit: 1,
+      targetType: null,
+      dryRun: false,
+    }),
+    recordInternalOpsAuditEvent: async (input) => {
+      auditCall = input;
+      return "audit-event-2";
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/requeue-dead-letter",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+      "x-internal-actor": "release-bot",
+    },
+    payload: {
+      limit: 1,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  if (!auditCall) {
+    throw new Error("Expected audit call to be recorded");
+  }
+  const recordedAudit = auditCall as {
+    operation: string;
+    outcome: "completed" | "failed";
+    actor?: string | null;
+  };
+  assert.equal(recordedAudit.operation, "forum-search-requeue-dead-letter");
+  assert.equal(recordedAudit.outcome, "completed");
+  assert.equal(recordedAudit.actor, "release-bot");
 });
 
 test("internal workers forum search pause endpoint updates control state", async (t) => {
@@ -504,7 +620,11 @@ test("internal workers forum search pause endpoint updates control state", async
 });
 
 test("internal workers forum search cancel queue endpoint forwards filters", async (t) => {
-  let receivedInput: { limit?: number; statuses?: Array<"pending" | "processing" | "failed" | "dead_letter"> } | null = null;
+  let receivedInput: {
+    limit?: number;
+    statuses?: Array<"pending" | "processing" | "failed" | "dead_letter">;
+    dryRun?: boolean;
+  } | null = null;
 
   const app = await buildInternalWorkersTestApp({
     cancelForumSearchQueueEntries: async (input) => {
@@ -512,8 +632,10 @@ test("internal workers forum search cancel queue endpoint forwards filters", asy
       return {
         selected: 3,
         cancelled: 3,
+        wouldCancel: 3,
         limit: input?.limit ?? 0,
         statuses: input?.statuses ?? ["pending", "processing", "failed"],
+        dryRun: Boolean(input?.dryRun),
       };
     },
   });
@@ -540,6 +662,92 @@ test("internal workers forum search cancel queue endpoint forwards filters", asy
     limit: 100,
     statuses: ["pending", "failed"],
   });
+});
+
+test("internal workers forum search cancel queue endpoint supports dry-run mode", async (t) => {
+  let receivedInput: {
+    limit?: number;
+    statuses?: Array<"pending" | "processing" | "failed" | "dead_letter">;
+    dryRun?: boolean;
+  } | null = null;
+
+  const app = await buildInternalWorkersTestApp({
+    cancelForumSearchQueueEntries: async (input) => {
+      receivedInput = input ?? null;
+      return {
+        selected: 7,
+        cancelled: 0,
+        wouldCancel: 7,
+        limit: input?.limit ?? 0,
+        statuses: input?.statuses ?? ["pending", "processing", "failed"],
+        dryRun: Boolean(input?.dryRun),
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/internal/workers/forum-search/cancel-queue",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+    payload: {
+      limit: 5,
+      statuses: ["failed"],
+      dryRun: true,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().run.dryRun, true);
+  assert.equal(response.json().run.cancelled, 0);
+  assert.equal(response.json().run.wouldCancel, 7);
+  assert.deepEqual(receivedInput, {
+    limit: 5,
+    statuses: ["failed"],
+    dryRun: true,
+  });
+});
+
+test("internal workers forum search audit endpoint lists audit events", async (t) => {
+  const app = await buildInternalWorkersTestApp({
+    listInternalOpsAuditEvents: async () => [
+      {
+        id: "audit-event-1",
+        operation: "forum-search-requeue-dead-letter",
+        outcome: "completed",
+        actor: "oncall",
+        requestMethod: "POST",
+        requestPath: "/api/internal/workers/forum-search/requeue-dead-letter",
+        payload: { dryRun: true },
+        result: { wouldRequeue: 10 },
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date(),
+      },
+    ],
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/internal/workers/forum-search/audit?limit=20",
+    headers: {
+      "x-internal-secret": INTERNAL_SECRET,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().worker, "forum-search-audit");
+  assert.equal(response.json().events.length, 1);
+  assert.equal(response.json().events[0].operation, "forum-search-requeue-dead-letter");
 });
 
 test("internal workers forum search reindex endpoint orchestrates backfill and sync", async (t) => {
@@ -662,8 +870,10 @@ test("internal workers forum search requeue endpoint is rate limited", async (t)
       return {
         selected: 0,
         requeued: 0,
+        wouldRequeue: 0,
         limit: 1,
         targetType: null,
+        dryRun: false,
       };
     },
   });
@@ -800,8 +1010,10 @@ test("internal workers forum search cancel queue endpoint is rate limited", asyn
       return {
         selected: 1,
         cancelled: 1,
+        wouldCancel: 1,
         limit: 1,
         statuses: ["pending"],
+        dryRun: false,
       };
     },
   });

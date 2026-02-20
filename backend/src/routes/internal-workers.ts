@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { createInternalOpsThrottleMiddleware } from "../middleware/internal-ops-throttle";
@@ -9,6 +9,10 @@ import type {
   RequeueForumSearchDeadLetterResult,
 } from "../services/forum-search-sync-queue";
 import { HttpError } from "../lib/http-error";
+import type {
+  recordInternalOpsAuditEvent,
+  listInternalOpsAuditEvents,
+} from "../services/internal-ops-audit";
 import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
 import type { ForumMvpStatusSummary } from "../services/forum-mvp-status";
 import { getOpsMetricsSnapshot } from "../services/ops-metrics";
@@ -25,11 +29,13 @@ type InternalWorkersRouteDependencies = {
   cancelForumSearchQueueEntries: (input?: {
     limit?: number;
     statuses?: Array<"pending" | "processing" | "failed" | "dead_letter">;
+    dryRun?: boolean;
   }) => Promise<CancelForumSearchQueueResult>;
   requeueForumSearchDeadLetterEntries: (input?: {
     limit?: number;
     targetType?: "post" | "comment";
     targetIds?: string[];
+    dryRun?: boolean;
   }) => Promise<RequeueForumSearchDeadLetterResult>;
   getForumSearchControlState: () => Promise<ForumSearchControlState>;
   setForumSearchPauseState: (input: { paused: boolean; reason?: string; pausedBy?: string }) => Promise<ForumSearchControlState>;
@@ -44,6 +50,8 @@ type InternalWorkersRouteDependencies = {
   }) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
   getForumMvpStatusSummary: () => Promise<ForumMvpStatusSummary>;
+  recordInternalOpsAuditEvent: typeof recordInternalOpsAuditEvent;
+  listInternalOpsAuditEvents: typeof listInternalOpsAuditEvents;
   getOpsMetricsSnapshot: typeof getOpsMetricsSnapshot;
   claimInternalOpsCooldown: typeof claimInternalOpsCooldown;
 };
@@ -90,6 +98,7 @@ const requeueForumSearchDeadLetterBodySchema = z.object({
   limit: z.coerce.number().int().positive().max(1000).optional(),
   targetType: z.enum(["post", "comment"]).optional(),
   targetIds: z.array(z.string().uuid()).max(1000).optional(),
+  dryRun: z.boolean().optional(),
 });
 
 const pauseForumSearchBodySchema = z.object({
@@ -101,6 +110,11 @@ const pauseForumSearchBodySchema = z.object({
 const cancelForumSearchQueueBodySchema = z.object({
   limit: z.coerce.number().int().positive().max(5000).optional(),
   statuses: z.array(z.enum(["pending", "processing", "failed", "dead_letter"])).max(4).optional(),
+  dryRun: z.boolean().optional(),
+});
+
+const forumSearchAuditQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(1000).optional(),
 });
 
 const FORUM_SEARCH_REINDEX_COOLDOWN_MS = 30_000;
@@ -129,6 +143,8 @@ const hasCompleteDependencies = (
     typeof deps.runOpsRetentionOnce === "function" &&
     typeof deps.getInternalWorkerStatusSummary === "function" &&
     typeof deps.getForumMvpStatusSummary === "function" &&
+    typeof deps.recordInternalOpsAuditEvent === "function" &&
+    typeof deps.listInternalOpsAuditEvents === "function" &&
     typeof deps.getOpsMetricsSnapshot === "function" &&
     typeof deps.claimInternalOpsCooldown === "function"
   );
@@ -144,6 +160,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     forumSearchSyncQueueService,
     forumSearchControlService,
     internalOpsThrottleService,
+    internalOpsAuditService,
     forumSearchBackfillJob,
     opsRetentionJob,
     forumMvpStatusService,
@@ -157,6 +174,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     import("../services/forum-search-sync-queue"),
     import("../services/forum-search-control"),
     import("../services/internal-ops-throttle-store"),
+    import("../services/internal-ops-audit"),
     import("../jobs/forum-search-backfill"),
     import("../jobs/ops-retention"),
     import("../services/forum-mvp-status"),
@@ -179,6 +197,8 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     runOpsRetentionOnce: opsRetentionJob.runOpsRetentionOnce as InternalWorkersRouteDependencies["runOpsRetentionOnce"],
     getInternalWorkerStatusSummary: workerStatusService.getInternalWorkerStatusSummary,
     getForumMvpStatusSummary: forumMvpStatusService.getForumMvpStatusSummary,
+    recordInternalOpsAuditEvent: internalOpsAuditService.recordInternalOpsAuditEvent,
+    listInternalOpsAuditEvents: internalOpsAuditService.listInternalOpsAuditEvents,
     getOpsMetricsSnapshot,
     claimInternalOpsCooldown: internalOpsThrottleService.claimInternalOpsCooldown,
   };
@@ -209,6 +229,64 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
     cooldownMs: FORUM_SEARCH_CANCEL_COOLDOWN_MS,
     claim: deps.claimInternalOpsCooldown,
   });
+
+  const getInternalActor = (request: FastifyRequest, fallback?: string | null): string | null => {
+    const raw = request.headers["x-internal-actor"];
+    const fromHeader = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+    if (fromHeader) {
+      return fromHeader.slice(0, 120);
+    }
+
+    const fromFallback = fallback?.trim();
+    return fromFallback ? fromFallback.slice(0, 120) : null;
+  };
+
+  const toAuditError = (error: unknown): { code: string; message: string } => {
+    if (error instanceof HttpError) {
+      return {
+        code: error.code,
+        message: error.message,
+      };
+    }
+
+    if (error instanceof Error) {
+      return {
+        code: "INTERNAL_SERVER_ERROR",
+        message: error.message,
+      };
+    }
+
+    return {
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Unknown internal operation error",
+    };
+  };
+
+  const persistInternalAudit = async (input: {
+    operation: string;
+    actor?: string | null;
+    requestMethod?: string | null;
+    requestPath?: string | null;
+    payload?: Record<string, unknown>;
+    result?: Record<string, unknown>;
+    error?: { code: string; message: string };
+  }): Promise<void> => {
+    try {
+      await deps.recordInternalOpsAuditEvent({
+        operation: input.operation,
+        outcome: input.error ? "failed" : "completed",
+        actor: input.actor ?? null,
+        requestMethod: input.requestMethod,
+        requestPath: input.requestPath,
+        payload: input.payload ?? {},
+        result: input.result ?? null,
+        errorCode: input.error?.code ?? null,
+        errorMessage: input.error?.message ?? null,
+      });
+    } catch (auditError) {
+      app.log.error({ err: auditError, operation: input.operation }, "Failed to persist internal ops audit event");
+    }
+  };
 
   app.post(
     "/api/internal/workers/reconciliation/run",
@@ -357,37 +435,73 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
     },
     async (request) => {
       const body = runForumSearchReindexBodySchema.parse(request.body ?? {});
-
-      const control = await deps.getForumSearchControlState();
-      if (control.paused) {
-        throw new HttpError(409, "FORUM_SEARCH_PAUSED", "Forum search queue is paused", {
-          pausedAt: control.pausedAt,
-          pauseReason: control.pauseReason,
-          pausedBy: control.pausedBy,
-        });
-      }
-
-      const backfill = await deps.runForumSearchBackfillOnce(app, {
+      const operation = "forum-search-reindex";
+      const actor = getInternalActor(request);
+      const requestPath = request.routeOptions.url ?? request.url;
+      const payload = {
         batchSize: body.batchSize,
         includePosts: body.includePosts,
         includeComments: body.includeComments,
-      });
+        syncLimit: body.syncLimit,
+      } satisfies Record<string, unknown>;
 
-      const sync = await deps.runForumSearchSyncOnce(app, {
-        limit: body.syncLimit,
-      });
+      try {
+        const control = await deps.getForumSearchControlState();
+        if (control.paused) {
+          throw new HttpError(409, "FORUM_SEARCH_PAUSED", "Forum search queue is paused", {
+            pausedAt: control.pausedAt,
+            pauseReason: control.pauseReason,
+            pausedBy: control.pausedBy,
+          });
+        }
 
-      const queue = await deps.getForumSearchSyncQueueStatusSummary();
+        const backfill = await deps.runForumSearchBackfillOnce(app, {
+          batchSize: body.batchSize,
+          includePosts: body.includePosts,
+          includeComments: body.includeComments,
+        });
 
-      return {
-        acknowledged: true,
-        worker: "forum-search-reindex",
-        run: {
+        const sync = await deps.runForumSearchSyncOnce(app, {
+          limit: body.syncLimit,
+        });
+
+        const queue = await deps.getForumSearchSyncQueueStatusSummary();
+
+        const run = {
           backfill,
           sync,
           queue,
-        },
-      };
+        };
+
+        await persistInternalAudit({
+          operation,
+          actor,
+          requestMethod: request.method,
+          requestPath,
+          payload,
+          result: {
+            skipped: Boolean((sync as { skipped?: boolean }).skipped),
+            queueActiveTotal: queue.activeTotal,
+            queueDeadLetter: queue.deadLetter,
+          },
+        });
+
+        return {
+          acknowledged: true,
+          worker: "forum-search-reindex",
+          run,
+        };
+      } catch (error) {
+        await persistInternalAudit({
+          operation,
+          actor,
+          requestMethod: request.method,
+          requestPath,
+          payload,
+          error: toAuditError(error),
+        });
+        throw error;
+      }
     }
   );
 
@@ -440,17 +554,51 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
     },
     async (request) => {
       const body = pauseForumSearchBodySchema.parse(request.body ?? {});
-      const state = await deps.setForumSearchPauseState({
+      const operation = "forum-search-pause";
+      const actor = getInternalActor(request, body.pausedBy ?? null);
+      const requestPath = request.routeOptions.url ?? request.url;
+      const payload = {
         paused: body.paused,
         reason: body.reason,
         pausedBy: body.pausedBy,
-      });
+      } satisfies Record<string, unknown>;
 
-      return {
-        acknowledged: true,
-        worker: "forum-search-pause",
-        state,
-      };
+      try {
+        const state = await deps.setForumSearchPauseState({
+          paused: body.paused,
+          reason: body.reason,
+          pausedBy: body.pausedBy,
+        });
+
+        await persistInternalAudit({
+          operation,
+          actor,
+          requestMethod: request.method,
+          requestPath,
+          payload,
+          result: {
+            paused: state.paused,
+            pausedAt: state.pausedAt,
+            pauseReason: state.pauseReason,
+          },
+        });
+
+        return {
+          acknowledged: true,
+          worker: "forum-search-pause",
+          state,
+        };
+      } catch (error) {
+        await persistInternalAudit({
+          operation,
+          actor,
+          requestMethod: request.method,
+          requestPath,
+          payload,
+          error: toAuditError(error),
+        });
+        throw error;
+      }
     }
   );
 
@@ -461,16 +609,54 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
     },
     async (request) => {
       const body = cancelForumSearchQueueBodySchema.parse(request.body ?? {});
-      const run = await deps.cancelForumSearchQueueEntries({
-        limit: body.limit,
-        statuses: body.statuses,
-      });
+      const operation = "forum-search-cancel-queue";
+      const actor = getInternalActor(request);
+      const requestPath = request.routeOptions.url ?? request.url;
 
-      return {
-        acknowledged: true,
-        worker: "forum-search-cancel-queue",
-        run,
-      };
+      const input: Parameters<InternalWorkersRouteDependencies["cancelForumSearchQueueEntries"]>[0] = {};
+      if (body.limit !== undefined) {
+        input.limit = body.limit;
+      }
+      if (body.statuses !== undefined) {
+        input.statuses = body.statuses;
+      }
+      if (body.dryRun !== undefined) {
+        input.dryRun = body.dryRun;
+      }
+
+      try {
+        const run = await deps.cancelForumSearchQueueEntries(input);
+
+        await persistInternalAudit({
+          operation,
+          actor,
+          requestMethod: request.method,
+          requestPath,
+          payload: input as Record<string, unknown>,
+          result: {
+            selected: run.selected,
+            cancelled: run.cancelled,
+            wouldCancel: run.wouldCancel,
+            dryRun: run.dryRun,
+          },
+        });
+
+        return {
+          acknowledged: true,
+          worker: "forum-search-cancel-queue",
+          run,
+        };
+      } catch (error) {
+        await persistInternalAudit({
+          operation,
+          actor,
+          requestMethod: request.method,
+          requestPath,
+          payload: input as Record<string, unknown>,
+          error: toAuditError(error),
+        });
+        throw error;
+      }
     }
   );
 
@@ -481,16 +667,81 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
     },
     async (request) => {
       const body = requeueForumSearchDeadLetterBodySchema.parse(request.body ?? {});
-      const run = await deps.requeueForumSearchDeadLetterEntries({
-        limit: body.limit,
-        targetType: body.targetType,
-        targetIds: body.targetIds,
+      const operation = "forum-search-requeue-dead-letter";
+      const actor = getInternalActor(request);
+      const requestPath = request.routeOptions.url ?? request.url;
+
+      const input: Parameters<InternalWorkersRouteDependencies["requeueForumSearchDeadLetterEntries"]>[0] = {};
+      if (body.limit !== undefined) {
+        input.limit = body.limit;
+      }
+      if (body.targetType !== undefined) {
+        input.targetType = body.targetType;
+      }
+      if (body.targetIds !== undefined) {
+        input.targetIds = body.targetIds;
+      }
+      if (body.dryRun !== undefined) {
+        input.dryRun = body.dryRun;
+      }
+
+      try {
+        const run = await deps.requeueForumSearchDeadLetterEntries(input);
+
+        await persistInternalAudit({
+          operation,
+          actor,
+          requestMethod: request.method,
+          requestPath,
+          payload: input as Record<string, unknown>,
+          result: {
+            selected: run.selected,
+            requeued: run.requeued,
+            wouldRequeue: run.wouldRequeue,
+            dryRun: run.dryRun,
+          },
+        });
+
+        return {
+          acknowledged: true,
+          worker: "forum-search-dead-letter-requeue",
+          run,
+        };
+      } catch (error) {
+        await persistInternalAudit({
+          operation,
+          actor,
+          requestMethod: request.method,
+          requestPath,
+          payload: input as Record<string, unknown>,
+          error: toAuditError(error),
+        });
+        throw error;
+      }
+    }
+  );
+
+  app.get(
+    "/api/internal/workers/forum-search/audit",
+    {
+      preHandler: [requireSecureTransportMiddleware, verifyInternalOpsSecretMiddleware],
+    },
+    async (request) => {
+      const query = forumSearchAuditQuerySchema.parse(request.query ?? {});
+      const events = await deps.listInternalOpsAuditEvents({
+        limit: query.limit,
+        operations: [
+          "forum-search-reindex",
+          "forum-search-pause",
+          "forum-search-cancel-queue",
+          "forum-search-requeue-dead-letter",
+        ],
       });
 
       return {
         acknowledged: true,
-        worker: "forum-search-dead-letter-requeue",
-        run,
+        worker: "forum-search-audit",
+        events,
       };
     }
   );

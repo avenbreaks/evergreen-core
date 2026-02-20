@@ -23,11 +23,13 @@ type RequeueForumSearchDeadLetterInput = {
   limit?: number;
   targetType?: ForumSearchSyncTargetType;
   targetIds?: string[];
+  dryRun?: boolean;
 };
 
 type CancelForumSearchQueueInput = {
   limit?: number;
   statuses?: ForumSearchSyncStatus[];
+  dryRun?: boolean;
 };
 
 export type ForumSearchSyncQueueStatusSummary = {
@@ -46,15 +48,19 @@ export type ForumSearchSyncQueueStatusSummary = {
 export type RequeueForumSearchDeadLetterResult = {
   selected: number;
   requeued: number;
+  wouldRequeue: number;
   limit: number;
   targetType: ForumSearchSyncTargetType | null;
+  dryRun: boolean;
 };
 
 export type CancelForumSearchQueueResult = {
   selected: number;
   cancelled: number;
+  wouldCancel: number;
   limit: number;
   statuses: ForumSearchSyncStatus[];
+  dryRun: boolean;
 };
 
 const RETRYABLE_STATUSES = ["pending", "failed"] as const;
@@ -311,6 +317,7 @@ export const requeueForumSearchDeadLetterEntries = async (
   input: RequeueForumSearchDeadLetterInput = {}
 ): Promise<RequeueForumSearchDeadLetterResult> => {
   const limit = clampRequeueLimit(input.limit);
+  const dryRun = Boolean(input.dryRun);
   const targetIds = [...new Set((input.targetIds ?? []).map((value) => value.trim()).filter(Boolean))];
   const now = new Date();
 
@@ -331,8 +338,21 @@ export const requeueForumSearchDeadLetterEntries = async (
     return {
       selected: 0,
       requeued: 0,
+      wouldRequeue: 0,
       limit,
       targetType: input.targetType ?? null,
+      dryRun,
+    };
+  }
+
+  if (dryRun) {
+    return {
+      selected: selected.length,
+      requeued: 0,
+      wouldRequeue: selected.length,
+      limit,
+      targetType: input.targetType ?? null,
+      dryRun: true,
     };
   }
 
@@ -353,8 +373,10 @@ export const requeueForumSearchDeadLetterEntries = async (
   return {
     selected: selected.length,
     requeued: selected.length,
+    wouldRequeue: selected.length,
     limit,
     targetType: input.targetType ?? null,
+    dryRun: false,
   };
 };
 
@@ -362,6 +384,7 @@ export const cancelForumSearchQueueEntries = async (
   input: CancelForumSearchQueueInput = {}
 ): Promise<CancelForumSearchQueueResult> => {
   const limit = clampCancelLimit(input.limit);
+  const dryRun = Boolean(input.dryRun);
   const statuses =
     input.statuses && input.statuses.length > 0
       ? [...new Set(input.statuses.filter((status): status is ForumSearchSyncStatus => QUEUE_STATUSES.includes(status)))]
@@ -378,8 +401,21 @@ export const cancelForumSearchQueueEntries = async (
     return {
       selected: 0,
       cancelled: 0,
+      wouldCancel: 0,
       limit,
       statuses,
+      dryRun,
+    };
+  }
+
+  if (dryRun) {
+    return {
+      selected: selected.length,
+      cancelled: 0,
+      wouldCancel: selected.length,
+      limit,
+      statuses,
+      dryRun: true,
     };
   }
 
@@ -389,7 +425,9 @@ export const cancelForumSearchQueueEntries = async (
   return {
     selected: selected.length,
     cancelled: selected.length,
+    wouldCancel: selected.length,
     limit,
     statuses,
+    dryRun: false,
   };
 };

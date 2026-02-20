@@ -69,6 +69,7 @@ Backend API untuk Evergreen Devparty dengan fokus:
   - `POST /api/internal/workers/forum-search/cancel-queue` (auth via `x-internal-secret`)
   - `GET /api/internal/workers/forum-search/status` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/forum-search/requeue-dead-letter` (auth via `x-internal-secret`)
+  - `GET /api/internal/workers/forum-search/audit` (auth via `x-internal-secret`)
   - `GET /api/internal/forum/mvp/status` (auth via `x-internal-secret`)
   - `POST /api/internal/workers/ops-retention/run` (auth via `x-internal-secret`)
   - `GET /api/internal/workers/status` (auth via `x-internal-secret`)
@@ -103,6 +104,8 @@ Backend API untuk Evergreen Devparty dengan fokus:
 - Cancel antrian aktif (`pending/processing/failed`) tersedia via `POST /api/internal/workers/forum-search/cancel-queue`.
 - Status queue + runtime sync/backfill tersedia via `GET /api/internal/workers/forum-search/status`.
 - Dead-letter queue bisa direqueue via `POST /api/internal/workers/forum-search/requeue-dead-letter`.
+- Cancel dan requeue mendukung mode simulasi lewat `dryRun=true`.
+- Audit trail aksi internal tersedia via `GET /api/internal/workers/forum-search/audit`.
 - Endpoint reindex, requeue, dan cancel-queue punya cooldown internal untuk mencegah trigger burst.
 - Bila Meilisearch tidak dikonfigurasi/bermasalah, search otomatis fallback ke query DB.
 

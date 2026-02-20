@@ -226,3 +226,24 @@ export const internalWorkerControls = pgTable(
     pausedIdx: index("internal_worker_controls_paused_idx").on(table.worker, table.isPaused),
   })
 );
+
+export const internalOpsAuditEvents = pgTable(
+  "internal_ops_audit_events",
+  {
+    id: text("id").primaryKey(),
+    operation: varchar("operation", { length: 120 }).notNull(),
+    outcome: varchar("outcome", { length: 24 }).notNull(),
+    actor: varchar("actor", { length: 120 }),
+    requestMethod: varchar("request_method", { length: 16 }),
+    requestPath: varchar("request_path", { length: 255 }),
+    payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+    result: jsonb("result"),
+    errorCode: varchar("error_code", { length: 64 }),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    operationIdx: index("internal_ops_audit_events_operation_idx").on(table.operation, table.createdAt),
+    createdIdx: index("internal_ops_audit_events_created_at_idx").on(table.createdAt),
+  })
+);
