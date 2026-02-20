@@ -114,6 +114,33 @@ const insertWallet = async (input: { id: string; userId: string; chainId: number
   });
 };
 
+const insertForumPostRow = async (input: {
+  id: string;
+  authorId: string;
+  title: string;
+  slug: string;
+  reactionCount?: number;
+  commentCount?: number;
+  shareCount?: number;
+  lastActivityAt?: Date;
+}) => {
+  const [{ authDb }, { schema }] = await Promise.all([import("@evergreen-devparty/auth"), import("@evergreen-devparty/db")]);
+
+  await authDb.insert(schema.forumPosts).values({
+    id: input.id,
+    authorId: input.authorId,
+    title: input.title,
+    slug: input.slug,
+    contentMarkdown: "seed content",
+    contentPlaintext: "seed content",
+    status: "published",
+    reactionCount: input.reactionCount ?? 0,
+    commentCount: input.commentCount ?? 0,
+    shareCount: input.shareCount ?? 0,
+    lastActivityAt: input.lastActivityAt ?? new Date(),
+  });
+};
+
 const cleanupUsersAndQueueTargets = async (input: { userIds: string[]; targetIds: string[] }) => {
   const [{ authDb }, { schema }] = await Promise.all([import("@evergreen-devparty/auth"), import("@evergreen-devparty/db")]);
 
@@ -322,6 +349,73 @@ test("forum DB integration resolves wallet mention to user notification", async 
   const walletMentionRow = mentionRows.find((row) => row.mentionedWalletAddress?.toLowerCase() === walletAddress.toLowerCase());
   assert.ok(walletMentionRow);
   assert.equal(walletMentionRow?.mentionedUserId, mentionedUserId);
+});
+
+test("forum DB integration top topics ranks creators by aggregated popularity", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const creatorA = randomUUID();
+  const creatorB = randomUUID();
+  const postA1 = randomUUID();
+  const postA2 = randomUUID();
+  const postB1 = randomUUID();
+
+  await insertUser({ id: creatorA });
+  await insertUser({ id: creatorB });
+
+  await insertForumPostRow({
+    id: postA1,
+    authorId: creatorA,
+    title: "Creator A topic 1",
+    slug: `creator-a-1-${postA1.slice(0, 8)}`,
+    reactionCount: 10,
+    commentCount: 4,
+    shareCount: 2,
+  });
+  await insertForumPostRow({
+    id: postA2,
+    authorId: creatorA,
+    title: "Creator A topic 2",
+    slug: `creator-a-2-${postA2.slice(0, 8)}`,
+    reactionCount: 5,
+    commentCount: 3,
+    shareCount: 1,
+  });
+  await insertForumPostRow({
+    id: postB1,
+    authorId: creatorB,
+    title: "Creator B topic 1",
+    slug: `creator-b-1-${postB1.slice(0, 8)}`,
+    reactionCount: 12,
+    commentCount: 2,
+    shareCount: 1,
+  });
+
+  const app = await buildForumDbTestApp();
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [creatorA, creatorB],
+      targetIds: [postA1, postA2, postB1],
+    });
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/forum/top-topics?limit=2",
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().topics.length, 2);
+  assert.equal(response.json().topics[0].userId, creatorA);
+  assert.equal(response.json().topics[0].topicCount, 2);
+  assert.equal(response.json().topics[0].popularityScore, 25);
+  assert.equal(response.json().topics[1].userId, creatorB);
+  assert.equal(response.json().topics[1].popularityScore, 15);
 });
 
 test("forum DB integration rejects forbidden pin by non-owner non-moderator", async (t) => {

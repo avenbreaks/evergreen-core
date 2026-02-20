@@ -181,15 +181,61 @@ export const listTopActiveUsers = async (limit?: number) => {
 
 export const listTopTopics = async (limit?: number) => {
   const size = Math.max(1, Math.min(limit ?? 20, 100));
-  const posts = await authDb
-    .select()
+  const rows = await authDb
+    .select({
+      authorId: schema.forumPosts.authorId,
+      topicCount: sql<number>`count(*)`,
+      totalReactions: sql<number>`coalesce(sum(${schema.forumPosts.reactionCount}), 0)`,
+      totalComments: sql<number>`coalesce(sum(${schema.forumPosts.commentCount}), 0)`,
+      totalShares: sql<number>`coalesce(sum(${schema.forumPosts.shareCount}), 0)`,
+      popularityScore: sql<number>`coalesce(sum(${schema.forumPosts.reactionCount} + ${schema.forumPosts.commentCount} + ${schema.forumPosts.shareCount}), 0)`,
+      latestActivityAt: sql<Date | null>`max(${schema.forumPosts.lastActivityAt})`,
+    })
     .from(schema.forumPosts)
     .where(eq(schema.forumPosts.status, "published"))
-    .orderBy(desc(sql`${schema.forumPosts.reactionCount} + ${schema.forumPosts.commentCount} + ${schema.forumPosts.shareCount}`), desc(schema.forumPosts.lastActivityAt))
+    .groupBy(schema.forumPosts.authorId)
+    .orderBy(
+      desc(sql`coalesce(sum(${schema.forumPosts.reactionCount} + ${schema.forumPosts.commentCount} + ${schema.forumPosts.shareCount}), 0)`),
+      desc(sql`count(*)`),
+      desc(sql`max(${schema.forumPosts.lastActivityAt})`)
+    )
     .limit(size);
 
+  if (rows.length === 0) {
+    return {
+      topics: [],
+    };
+  }
+
+  const authorIds = rows.map((row) => row.authorId);
+  const authors = await authDb
+    .select({
+      id: schema.users.id,
+      username: schema.users.username,
+      name: schema.users.name,
+      image: schema.users.image,
+    })
+    .from(schema.users)
+    .where(inArray(schema.users.id, authorIds));
+
+  const authorById = new Map(authors.map((author) => [author.id, author]));
+
   return {
-    topics: posts.map((post) => summarizePost(post)),
+    topics: rows.map((row) => {
+      const author = authorById.get(row.authorId);
+      return {
+        userId: row.authorId,
+        username: author?.username ?? null,
+        name: author?.name ?? null,
+        image: author?.image ?? null,
+        topicCount: Number(row.topicCount),
+        totalReactions: Number(row.totalReactions),
+        totalComments: Number(row.totalComments),
+        totalShares: Number(row.totalShares),
+        popularityScore: Number(row.popularityScore),
+        latestActivityAt: row.latestActivityAt,
+      };
+    }),
   };
 };
 
