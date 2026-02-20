@@ -80,7 +80,4 @@ export const auth = betterAuth({
       generateId: () => crypto.randomUUID(),
     },
   },
-  experimental: {
-    joins: true,
-  },
 });
