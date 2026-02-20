@@ -9,6 +9,7 @@ import type {
   ForumSearchSyncQueueStatusSummary,
   RequeueForumSearchDeadLetterResult,
 } from "../services/forum-search-sync-queue";
+import type { ClaimInternalOpsCooldownResult } from "../services/internal-ops-throttle-store";
 
 const INTERNAL_SECRET = "test-internal-worker-secret";
 
@@ -47,6 +48,7 @@ type InternalWorkersDeps = {
   ) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
   getOpsMetricsSnapshot: () => OpsMetricsSnapshot;
+  claimInternalOpsCooldown: (input: { operation: string; cooldownMs: number; now?: Date }) => Promise<ClaimInternalOpsCooldownResult>;
 };
 
 const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorkersDeps => {
@@ -68,6 +70,11 @@ const buildDeps = (overrides: Partial<InternalWorkersDeps> = {}): InternalWorker
     getOpsMetricsSnapshot: () => {
       throw new Error("Unexpected dependency call: getOpsMetricsSnapshot");
     },
+    claimInternalOpsCooldown: async (input) => ({
+      allowed: true,
+      retryAfterMs: 0,
+      nextAllowedAt: new Date(Date.now() + input.cooldownMs),
+    }),
     ...overrides,
   };
 };
@@ -479,8 +486,27 @@ test("internal workers forum search reindex endpoint orchestrates backfill and s
 
 test("internal workers forum search requeue endpoint is rate limited", async (t) => {
   let calls = 0;
+  const claimCounts = new Map<string, number>();
 
   const app = await buildInternalWorkersTestApp({
+    claimInternalOpsCooldown: async ({ operation, cooldownMs }) => {
+      const nextCount = (claimCounts.get(operation) ?? 0) + 1;
+      claimCounts.set(operation, nextCount);
+
+      if (nextCount > 1) {
+        return {
+          allowed: false,
+          retryAfterMs: cooldownMs,
+          nextAllowedAt: new Date(Date.now() + cooldownMs),
+        };
+      }
+
+      return {
+        allowed: true,
+        retryAfterMs: 0,
+        nextAllowedAt: new Date(Date.now() + cooldownMs),
+      };
+    },
     requeueForumSearchDeadLetterEntries: async () => {
       calls += 1;
       return {
@@ -522,8 +548,27 @@ test("internal workers forum search requeue endpoint is rate limited", async (t)
 
 test("internal workers forum search reindex endpoint is rate limited", async (t) => {
   let backfillCalls = 0;
+  const claimCounts = new Map<string, number>();
 
   const app = await buildInternalWorkersTestApp({
+    claimInternalOpsCooldown: async ({ operation, cooldownMs }) => {
+      const nextCount = (claimCounts.get(operation) ?? 0) + 1;
+      claimCounts.set(operation, nextCount);
+
+      if (nextCount > 1) {
+        return {
+          allowed: false,
+          retryAfterMs: cooldownMs,
+          nextAllowedAt: new Date(Date.now() + cooldownMs),
+        };
+      }
+
+      return {
+        allowed: true,
+        retryAfterMs: 0,
+        nextAllowedAt: new Date(Date.now() + cooldownMs),
+      };
+    },
     runForumSearchBackfillOnce: async () => {
       backfillCalls += 1;
       return {

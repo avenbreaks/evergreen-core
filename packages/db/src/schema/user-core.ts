@@ -199,3 +199,15 @@ export const ensWebhookEvents = pgTable(
     dedupeUnique: uniqueIndex("ens_webhook_events_dedupe_key_unique").on(table.dedupeKey),
   })
 );
+
+export const internalOpsThrottle = pgTable(
+  "internal_ops_throttle",
+  {
+    operation: varchar("operation", { length: 120 }).primaryKey(),
+    nextAllowedAt: timestamp("next_allowed_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    nextAllowedIdx: index("internal_ops_throttle_next_allowed_at_idx").on(table.nextAllowedAt),
+  })
+);

@@ -9,6 +9,7 @@ import type {
 } from "../services/forum-search-sync-queue";
 import { verifyInternalOpsSecretMiddleware } from "../middleware/webhook-auth";
 import { getOpsMetricsSnapshot } from "../services/ops-metrics";
+import type { claimInternalOpsCooldown } from "../services/internal-ops-throttle-store";
 
 type InternalWorkersRouteDependencies = {
   runEnsReconciliationOnce: (app: unknown, input?: { limit?: number; staleMinutes?: number; dryRun?: boolean }) => Promise<unknown>;
@@ -33,6 +34,7 @@ type InternalWorkersRouteDependencies = {
   }) => Promise<unknown>;
   getInternalWorkerStatusSummary: () => Promise<unknown>;
   getOpsMetricsSnapshot: typeof getOpsMetricsSnapshot;
+  claimInternalOpsCooldown: typeof claimInternalOpsCooldown;
 };
 
 type InternalWorkersRoutesOptions = {
@@ -100,7 +102,8 @@ const hasCompleteDependencies = (
     typeof deps.runForumSearchBackfillOnce === "function" &&
     typeof deps.runOpsRetentionOnce === "function" &&
     typeof deps.getInternalWorkerStatusSummary === "function" &&
-    typeof deps.getOpsMetricsSnapshot === "function"
+    typeof deps.getOpsMetricsSnapshot === "function" &&
+    typeof deps.claimInternalOpsCooldown === "function"
   );
 };
 
@@ -112,6 +115,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     webhookRetryJob,
     forumSearchSyncJob,
     forumSearchSyncQueueService,
+    internalOpsThrottleService,
     forumSearchBackfillJob,
     opsRetentionJob,
     workerStatusService,
@@ -122,6 +126,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     import("../jobs/ens-webhook-retry"),
     import("../jobs/forum-search-sync"),
     import("../services/forum-search-sync-queue"),
+    import("../services/internal-ops-throttle-store"),
     import("../jobs/forum-search-backfill"),
     import("../jobs/ops-retention"),
     import("../services/internal-worker-status"),
@@ -140,6 +145,7 @@ const loadDefaultDependencies = async (): Promise<InternalWorkersRouteDependenci
     runOpsRetentionOnce: opsRetentionJob.runOpsRetentionOnce as InternalWorkersRouteDependencies["runOpsRetentionOnce"],
     getInternalWorkerStatusSummary: workerStatusService.getInternalWorkerStatusSummary,
     getOpsMetricsSnapshot,
+    claimInternalOpsCooldown: internalOpsThrottleService.claimInternalOpsCooldown,
   };
 };
 
@@ -154,11 +160,13 @@ export const internalWorkersRoutes: FastifyPluginAsync<InternalWorkersRoutesOpti
   const forumSearchReindexThrottle = createInternalOpsThrottleMiddleware({
     operation: "forum-search-reindex",
     cooldownMs: FORUM_SEARCH_REINDEX_COOLDOWN_MS,
+    claim: deps.claimInternalOpsCooldown,
   });
 
   const forumSearchRequeueThrottle = createInternalOpsThrottleMiddleware({
     operation: "forum-search-requeue-dead-letter",
     cooldownMs: FORUM_SEARCH_REQUEUE_COOLDOWN_MS,
+    claim: deps.claimInternalOpsCooldown,
   });
 
   app.post(

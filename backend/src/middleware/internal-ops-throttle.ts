@@ -1,31 +1,35 @@
 import type { preHandlerHookHandler } from "fastify";
 
 import { HttpError } from "../lib/http-error";
+import type {
+  ClaimInternalOpsCooldownInput,
+  ClaimInternalOpsCooldownResult,
+} from "../services/internal-ops-throttle-store";
 
 type CreateInternalOpsThrottleInput = {
   operation: string;
   cooldownMs: number;
-  now?: () => number;
+  claim: (input: ClaimInternalOpsCooldownInput) => Promise<ClaimInternalOpsCooldownResult>;
 };
 
 export const createInternalOpsThrottleMiddleware = (
   input: CreateInternalOpsThrottleInput
 ): preHandlerHookHandler => {
   const cooldownMs = Math.max(1, Math.floor(input.cooldownMs));
-  const now = input.now ?? Date.now;
-  let lastAcceptedAt = 0;
 
   return async () => {
-    const current = now();
-    const elapsed = current - lastAcceptedAt;
-    if (lastAcceptedAt > 0 && elapsed < cooldownMs) {
+    const claim = await input.claim({
+      operation: input.operation,
+      cooldownMs,
+    });
+
+    if (!claim.allowed) {
       throw new HttpError(429, "INTERNAL_OPS_RATE_LIMITED", `${input.operation} is rate limited`, {
         operation: input.operation,
         cooldownMs,
-        retryAfterMs: cooldownMs - Math.max(elapsed, 0),
+        retryAfterMs: claim.retryAfterMs,
+        nextAllowedAt: claim.nextAllowedAt,
       });
     }
-
-    lastAcceptedAt = current;
   };
 };
