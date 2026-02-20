@@ -101,6 +101,19 @@ const insertUser = async (input: { id: string; role?: "user" | "moderator" | "ad
   });
 };
 
+const insertWallet = async (input: { id: string; userId: string; chainId: number; address: string; isPrimary?: boolean }) => {
+  const [{ authDb }, { schema }] = await Promise.all([import("@evergreen-devparty/auth"), import("@evergreen-devparty/db")]);
+
+  await authDb.insert(schema.wallets).values({
+    id: input.id,
+    userId: input.userId,
+    chainId: input.chainId,
+    address: input.address,
+    walletType: "evm",
+    isPrimary: input.isPrimary ?? true,
+  });
+};
+
 const cleanupUsersAndQueueTargets = async (input: { userIds: string[]; targetIds: string[] }) => {
   const [{ authDb }, { schema }] = await Promise.all([import("@evergreen-devparty/auth"), import("@evergreen-devparty/db")]);
 
@@ -228,6 +241,87 @@ test("forum DB integration happy-path for post comment reaction and report", asy
 
   assert.equal(reportResponse.statusCode, 200);
   assert.equal(reportResponse.json().status, "open");
+});
+
+test("forum DB integration resolves wallet mention to user notification", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const authorId = randomUUID();
+  const mentionedUserId = randomUUID();
+  const walletId = randomUUID();
+  const walletAddress = "0x1234567890abcdef1234567890abcdef12345678";
+
+  await insertUser({ id: authorId });
+  await insertUser({ id: mentionedUserId });
+  await insertWallet({
+    id: walletId,
+    userId: mentionedUserId,
+    chainId: 131,
+    address: walletAddress,
+    isPrimary: true,
+  });
+
+  const app = await buildForumDbTestApp();
+
+  let postId: string | null = null;
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [authorId, mentionedUserId],
+      targetIds: [postId].filter((value): value is string => Boolean(value)),
+    });
+  });
+
+  const createPostResponse = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": authorId,
+    },
+    payload: {
+      title: `Wallet mention ${authorId.slice(0, 8)}`,
+      markdown: `hello @${walletAddress}`,
+    },
+  });
+
+  assert.equal(createPostResponse.statusCode, 200);
+  postId = createPostResponse.json().post.id;
+
+  const notificationsResponse = await app.inject({
+    method: "GET",
+    url: "/api/notifications?limit=20&unreadOnly=true",
+    headers: {
+      "x-test-user-id": mentionedUserId,
+    },
+  });
+
+  assert.equal(notificationsResponse.statusCode, 200);
+  const mentionNotification = notificationsResponse
+    .json()
+    .notifications.find((item: { type: string; postId: string | null; actorUserId: string | null }) => item.type === "mention");
+
+  assert.ok(mentionNotification);
+  assert.equal(mentionNotification.postId, postId);
+  assert.equal(mentionNotification.actorUserId, authorId);
+
+  const [{ authDb }, { schema }] = await Promise.all([import("@evergreen-devparty/auth"), import("@evergreen-devparty/db")]);
+  assert.ok(postId);
+  const postIdValue = postId;
+  const mentionRows = await authDb
+    .select({
+      mentionedUserId: schema.forumMentions.mentionedUserId,
+      mentionedWalletAddress: schema.forumMentions.mentionedWalletAddress,
+    })
+    .from(schema.forumMentions)
+    .where(eq(schema.forumMentions.postId, postIdValue));
+
+  const walletMentionRow = mentionRows.find((row) => row.mentionedWalletAddress?.toLowerCase() === walletAddress.toLowerCase());
+  assert.ok(walletMentionRow);
+  assert.equal(walletMentionRow?.mentionedUserId, mentionedUserId);
 });
 
 test("forum DB integration rejects forbidden pin by non-owner non-moderator", async (t) => {

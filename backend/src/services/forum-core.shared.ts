@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { getAddress } from "viem";
 
 import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
@@ -138,8 +139,20 @@ export const createNotification = async (input: {
 const resolveMentionTargets = async (mentions: Mention[]) => {
   const userMentions = mentions.filter((mention) => mention.targetType === "user").map((mention) => mention.mentionText);
   const ensMentions = mentions.filter((mention) => mention.targetType === "ens").map((mention) => mention.mentionText.toLowerCase());
+  const walletMentions = mentions.filter((mention) => mention.targetType === "wallet").map((mention) => mention.mentionText);
 
-  const [users, ensIdentities] = await Promise.all([
+  const walletCandidates = [...new Set(walletMentions.flatMap((address) => {
+    const candidates = [address, address.toLowerCase()];
+    try {
+      candidates.push(getAddress(address));
+    } catch {
+      // Ignore invalid wallet mention format while resolving lookup candidates.
+    }
+
+    return candidates;
+  }))];
+
+  const [users, ensIdentities, wallets, ensOwnerAddresses, ensControllerAddresses] = await Promise.all([
     userMentions.length
       ? authDb
           .select({ id: schema.users.id, username: schema.users.username })
@@ -152,10 +165,56 @@ const resolveMentionTargets = async (mentions: Mention[]) => {
           .from(schema.ensIdentities)
           .where(inArray(schema.ensIdentities.name, ensMentions))
       : Promise.resolve([]),
+    walletCandidates.length
+      ? authDb
+          .select({ userId: schema.wallets.userId, address: schema.wallets.address })
+          .from(schema.wallets)
+          .where(inArray(schema.wallets.address, walletCandidates))
+      : Promise.resolve([]),
+    walletCandidates.length
+      ? authDb
+          .select({
+            id: schema.ensIdentities.id,
+            userId: schema.ensIdentities.userId,
+            ownerAddress: schema.ensIdentities.ownerAddress,
+            controllerAddress: schema.ensIdentities.controllerAddress,
+          })
+          .from(schema.ensIdentities)
+          .where(inArray(schema.ensIdentities.ownerAddress, walletCandidates))
+      : Promise.resolve([]),
+    walletCandidates.length
+      ? authDb
+          .select({
+            id: schema.ensIdentities.id,
+            userId: schema.ensIdentities.userId,
+            ownerAddress: schema.ensIdentities.ownerAddress,
+            controllerAddress: schema.ensIdentities.controllerAddress,
+          })
+          .from(schema.ensIdentities)
+          .where(inArray(schema.ensIdentities.controllerAddress, walletCandidates))
+      : Promise.resolve([]),
   ]);
 
   const userByUsername = new Map(users.map((user) => [String(user.username).toLowerCase(), user.id]));
   const ensByName = new Map(ensIdentities.map((ens) => [ens.name.toLowerCase(), ens]));
+  const userByWalletAddress = new Map(wallets.map((wallet) => [wallet.address.toLowerCase(), wallet.userId]));
+  const ensByWalletAddress = new Map<string, { id: string; userId: string }>();
+
+  for (const identity of [...ensOwnerAddresses, ...ensControllerAddresses]) {
+    if (identity.ownerAddress) {
+      ensByWalletAddress.set(identity.ownerAddress.toLowerCase(), {
+        id: identity.id,
+        userId: identity.userId,
+      });
+    }
+
+    if (identity.controllerAddress) {
+      ensByWalletAddress.set(identity.controllerAddress.toLowerCase(), {
+        id: identity.id,
+        userId: identity.userId,
+      });
+    }
+  }
 
   return mentions.map((mention) => {
     if (mention.targetType === "user") {
@@ -171,6 +230,16 @@ const resolveMentionTargets = async (mentions: Mention[]) => {
       return {
         mention,
         mentionedUserId: ens?.userId ?? null,
+        mentionedEnsIdentityId: ens?.id ?? null,
+      };
+    }
+
+    if (mention.targetType === "wallet") {
+      const walletAddress = mention.mentionText.toLowerCase();
+      const ens = ensByWalletAddress.get(walletAddress) ?? null;
+      return {
+        mention,
+        mentionedUserId: userByWalletAddress.get(walletAddress) ?? ens?.userId ?? null,
         mentionedEnsIdentityId: ens?.id ?? null,
       };
     }
