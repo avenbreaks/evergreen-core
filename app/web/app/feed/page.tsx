@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { type InfiniteData, type QueryKey, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Loader2, MessageCircle, Plus, Search, Share2, ThumbsUp, UserPlus } from "lucide-react";
+import { Bell, Bookmark, Compass, Home, Loader2, MessageCircle, Plus, Search, Share2, Shield, ThumbsUp, User, UserPlus, Users2 } from "lucide-react";
 
 import { ViewerSummaryCard } from "@/components/auth/viewer-summary-card";
 import { EvergreenHeader } from "@/components/layout/evergreen-header";
@@ -12,6 +13,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -43,6 +58,44 @@ const formatRelative = (value: string): string => {
 
   return `${Math.floor(diffHours / 24)}d ago`;
 };
+
+const sidebarFeedModes = [
+  {
+    label: "Home",
+    description: "All published discussions",
+    mode: "all" as const,
+    icon: Home,
+  },
+  {
+    label: "Following",
+    description: "Only people you follow",
+    mode: "following" as const,
+    icon: Users2,
+  },
+];
+
+const sidebarShortcuts = [
+  {
+    label: "Thread Directory",
+    href: "/thread",
+    icon: Compass,
+  },
+  {
+    label: "Notifications",
+    href: "/notifications",
+    icon: Bell,
+  },
+  {
+    label: "Profile",
+    href: "/profile/me",
+    icon: User,
+  },
+  {
+    label: "Moderation",
+    href: "/moderation",
+    icon: Shield,
+  },
+];
 
 export default function FeedPage() {
   const queryClient = useQueryClient();
@@ -377,24 +430,62 @@ export default function FeedPage() {
       <EvergreenHeader />
 
       <main className="mx-auto grid w-full max-w-[1400px] grid-cols-1 gap-6 px-4 pb-12 pt-6 md:grid-cols-[220px_1fr] xl:grid-cols-[220px_1fr_300px] sm:px-6 lg:px-8">
-        <aside className="hidden space-y-4 rounded-xl border border-border bg-card/80 p-4 md:block">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Navigation</h2>
-          <div className="space-y-1">
-            {[
-              { label: "Home", active: true },
-              { label: "Following", active: false },
-              { label: "Categories", active: false },
-              { label: "Tags", active: false },
-              { label: "Bookmarks", active: false },
-            ].map(({ label, active }) => (
-              <div
-                key={label}
-                className={`rounded-md px-3 py-2 text-sm ${active ? "border-l-2 border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-background hover:text-foreground"}`}
-              >
-                {label}
-              </div>
-            ))}
-          </div>
+        <aside className="hidden md:block">
+          <SidebarProvider defaultOpen className="min-h-0 w-full">
+            <Sidebar collapsible="none" className="h-auto w-full rounded-xl border border-border bg-card/90 text-card-foreground">
+              <SidebarHeader className="gap-1 p-3">
+                <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Navigation</h2>
+                <p className="text-xs text-muted-foreground">Switch feed scope and jump across core sections.</p>
+              </SidebarHeader>
+
+              <SidebarContent className="pb-2">
+                <SidebarGroup className="p-2 pt-0">
+                  <SidebarGroupLabel>Feed Scope</SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {sidebarFeedModes.map((item) => (
+                        <SidebarMenuItem key={item.mode}>
+                          <SidebarMenuButton
+                            isActive={feedMode === item.mode}
+                            tooltip={item.description}
+                            onClick={() => setFeedMode(item.mode)}
+                          >
+                            <item.icon />
+                            <span>{item.label}</span>
+                          </SidebarMenuButton>
+                          {feedMode === item.mode ? <SidebarMenuBadge>live</SidebarMenuBadge> : null}
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+
+                <SidebarGroup className="p-2 pt-0">
+                  <SidebarGroupLabel>Shortcuts</SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {sidebarShortcuts.map((item) => (
+                        <SidebarMenuItem key={item.href}>
+                          <SidebarMenuButton asChild tooltip={item.label}>
+                            <Link href={item.href}>
+                              <item.icon />
+                              <span>{item.label}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              </SidebarContent>
+
+              <SidebarFooter className="border-t border-sidebar-border p-3">
+                <p className="text-xs text-muted-foreground">
+                  Current mode: <span className="font-medium text-foreground">{feedMode === "all" ? "Public Feed" : "Following"}</span>
+                </p>
+              </SidebarFooter>
+            </Sidebar>
+          </SidebarProvider>
         </aside>
 
         <section className="space-y-5">
