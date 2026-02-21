@@ -4,6 +4,10 @@ Open source forum + social networking platform for developers, with Better Auth,
 
 ![Evergreen Images](./.github/evergreen_images.png)
 
+## 🚧 Under Development
+
+This project is actively being built and is not production-ready. Expect breaking changes.
+
 ## Workspace
 - `backend`: Fastify API scaffold.
 - `packages/db`: Drizzle schema, migration, and db client.
