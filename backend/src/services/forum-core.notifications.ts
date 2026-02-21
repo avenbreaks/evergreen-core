@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
@@ -99,5 +99,33 @@ export const markAllForumNotificationsRead = async (input: { userId: string }) =
   return {
     read: true,
     updatedCount: updatedRows.length,
+  };
+};
+
+export const getForumNotificationStreamState = async (input: { userId: string }) => {
+  const [latestNotification, unreadAggregate] = await Promise.all([
+    authDb
+      .select({
+        id: schema.forumNotifications.id,
+      })
+      .from(schema.forumNotifications)
+      .where(eq(schema.forumNotifications.recipientUserId, input.userId))
+      .orderBy(desc(schema.forumNotifications.createdAt), desc(schema.forumNotifications.id))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+    authDb
+      .select({
+        unreadCount: sql<number>`count(*)`,
+      })
+      .from(schema.forumNotifications)
+      .where(and(eq(schema.forumNotifications.recipientUserId, input.userId), isNull(schema.forumNotifications.readAt)))
+      .limit(1)
+      .then((rows) => rows[0] ?? { unreadCount: 0 }),
+  ]);
+
+  return {
+    latestNotificationId: latestNotification?.id ?? null,
+    unreadCount: Number(unreadAggregate.unreadCount ?? 0),
+    generatedAt: new Date().toISOString(),
   };
 };

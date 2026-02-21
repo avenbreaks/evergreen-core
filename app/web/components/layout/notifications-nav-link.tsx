@@ -22,7 +22,6 @@ export function NotificationsNavLink() {
         unreadOnly: true,
       }),
     enabled: isAuthenticated,
-    refetchInterval: isAuthenticated ? 15_000 : false,
     retry: false,
   });
 

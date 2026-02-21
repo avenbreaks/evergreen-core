@@ -64,3 +64,38 @@ export const proxyBackend = async (input: {
 
   return toNextResponse(response);
 };
+
+export const proxyBackendStream = async (input: {
+  request: NextRequest;
+  path: string;
+  headers?: HeadersInit;
+}): Promise<NextResponse> => {
+  const backendUrl = resolveBackendUrl();
+  const headers = buildBackendHeaders(input.request, input.headers);
+
+  const response = await fetch(`${backendUrl}${input.path}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+
+  const proxiedHeaders = new Headers();
+  for (const [key, value] of response.headers.entries()) {
+    const normalized = key.toLowerCase();
+    if (normalized === "set-cookie" || HOP_BY_HOP_HEADERS.has(normalized)) {
+      continue;
+    }
+
+    proxiedHeaders.set(key, value);
+  }
+
+  const setCookies = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ?? [];
+  for (const cookie of setCookies) {
+    proxiedHeaders.append("set-cookie", cookie);
+  }
+
+  return new NextResponse(response.body, {
+    status: response.status,
+    headers: proxiedHeaders,
+  });
+};
