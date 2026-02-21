@@ -40,8 +40,105 @@ export type EnsTldsPayload = {
 };
 
 export type EnsCheckPayload = {
+  label?: string;
+  tld?: string;
   domainName?: string;
+  isValid?: boolean;
+  isAvailable?: boolean;
   available?: boolean;
+  status?: string;
+  durationSeconds?: number;
+  message?: string;
+  reason?: string;
+  price?: {
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
+export type EnsTransactionPreview = {
+  to?: string;
+  functionName?: string;
+  args?: unknown[];
+  value?: string;
+  [key: string]: unknown;
+};
+
+export type EnsPurchaseIntent = {
+  id: string;
+  chainId: number;
+  tld: string;
+  label: string;
+  domainName: string;
+  durationSeconds: number;
+  walletAddress: string;
+  status: string;
+  commitment: string;
+  commitTxHash?: string | null;
+  registerTxHash?: string | null;
+  registerableAt?: string | null;
+  registerBy?: string | null;
+  failureReason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  [key: string]: unknown;
+};
+
+export type EnsDomain = {
+  id: string;
+  userId: string;
+  chainId: number;
+  tld: string;
+  name: string;
+  label: string;
+  ownerAddress?: string | null;
+  txHash?: string | null;
+  status?: string;
+  isPrimary?: boolean;
+  expiresAt?: string | null;
+  registeredAt?: string | null;
+  createdAt?: string;
+  [key: string]: unknown;
+};
+
+export type EnsIntentListPayload = {
+  intents: EnsPurchaseIntent[];
+};
+
+export type EnsDomainListPayload = {
+  domains: EnsDomain[];
+};
+
+export type EnsCommitmentPayload = {
+  intentId: string;
+  domainName: string;
+  secret: string;
+  commitment: string;
+  chainId: number;
+  tx?: EnsTransactionPreview;
+  rules?: {
+    minCommitmentAgeSeconds?: number;
+    maxCommitmentAgeSeconds?: number;
+    minRegistrationDurationSeconds?: number;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
+export type EnsCommitmentConfirmPayload = {
+  intent?: EnsPurchaseIntent;
+  [key: string]: unknown;
+};
+
+export type EnsRegisterPreparePayload = {
+  intent?: EnsPurchaseIntent;
+  tx?: EnsTransactionPreview;
+  [key: string]: unknown;
+};
+
+export type EnsRegisterConfirmPayload = {
+  domain?: EnsDomain;
+  registerTxHash?: string;
   [key: string]: unknown;
 };
 
@@ -357,6 +454,75 @@ export const postEnsCheck = async (payload: {
   durationSeconds?: number;
 }): Promise<EnsCheckPayload> => {
   const data = await postJson<EnsCheckPayload>("/api/ens/check", payload);
+  return data ?? {};
+};
+
+export const fetchEnsPurchaseIntents = async (input: { limit?: number } = {}): Promise<EnsIntentListPayload> => {
+  const params = new URLSearchParams();
+  if (input.limit) {
+    params.set("limit", String(input.limit));
+  }
+
+  const query = params.toString();
+  const response = await fetch(`/api/ens/intents${query ? `?${query}` : ""}`, {
+    cache: "no-store",
+  });
+
+  return ensureOk(response, await parseJson<EnsIntentListPayload>(response)) ?? { intents: [] };
+};
+
+export const fetchEnsDomains = async (): Promise<EnsDomainListPayload> => {
+  const response = await fetch("/api/ens/domains", {
+    cache: "no-store",
+  });
+
+  return ensureOk(response, await parseJson<EnsDomainListPayload>(response)) ?? { domains: [] };
+};
+
+export const createEnsCommitmentIntent = async (payload: {
+  walletAddress: string;
+  label: string;
+  tld: string;
+  durationSeconds: number;
+  referrer?: string;
+}): Promise<EnsCommitmentPayload> => {
+  const data = await postJson<EnsCommitmentPayload>("/api/ens/commitments", payload);
+  if (!data) {
+    throw new Error("Empty ENS commitment response");
+  }
+
+  return data;
+};
+
+export const confirmEnsCommitmentIntent = async (payload: { intentId: string; txHash: string }): Promise<EnsCommitmentConfirmPayload> => {
+  const data = await postJson<EnsCommitmentConfirmPayload>(`/api/ens/commitments/${payload.intentId}/confirm`, {
+    txHash: payload.txHash,
+  });
+
+  return data ?? {};
+};
+
+export const prepareEnsRegisterTransaction = async (payload: {
+  intentId: string;
+  secret: string;
+}): Promise<EnsRegisterPreparePayload> => {
+  const data = await postJson<EnsRegisterPreparePayload>(`/api/ens/registrations/${payload.intentId}/prepare`, {
+    secret: payload.secret,
+  });
+
+  return data ?? {};
+};
+
+export const confirmEnsRegisterTransaction = async (payload: {
+  intentId: string;
+  txHash: string;
+  setPrimary?: boolean;
+}): Promise<EnsRegisterConfirmPayload> => {
+  const data = await postJson<EnsRegisterConfirmPayload>(`/api/ens/registrations/${payload.intentId}/confirm`, {
+    txHash: payload.txHash,
+    setPrimary: payload.setPrimary,
+  });
+
   return data ?? {};
 };
 
