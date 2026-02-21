@@ -88,6 +88,11 @@ export type ForumFeedPayload = {
   nextCursor: string | null;
 };
 
+export type ForumSearchPayload = {
+  posts: ForumPostSummary[];
+  comments: ForumCommentSummary[];
+};
+
 export type ForumPostDetailPayload = {
   post: ForumPostSummary;
   comments: ForumCommentSummary[];
@@ -386,6 +391,29 @@ export const fetchForumFeed = async (input: {
 
   const payload = ensureOk(response, await parseJson<ForumFeedPayload>(response));
   return payload ?? { posts: [], nextCursor: null };
+};
+
+export const fetchForumSearch = async (input: { query: string; limit?: number }): Promise<ForumSearchPayload> => {
+  const queryText = input.query.trim();
+  if (!queryText) {
+    return {
+      posts: [],
+      comments: [],
+    };
+  }
+
+  const params = new URLSearchParams();
+  params.set("query", queryText);
+  if (input.limit) {
+    params.set("limit", String(input.limit));
+  }
+
+  const response = await fetch(`/api/forum/search?${params.toString()}`, {
+    cache: "no-store",
+  });
+
+  const payload = ensureOk(response, await parseJson<ForumSearchPayload>(response));
+  return payload ?? { posts: [], comments: [] };
 };
 
 export const createForumPost = async (payload: {
