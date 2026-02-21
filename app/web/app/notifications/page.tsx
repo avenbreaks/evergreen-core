@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, BellDot, CheckCheck, Loader2 } from "lucide-react";
 
 import { EvergreenHeader } from "@/components/layout/evergreen-header";
@@ -69,6 +69,7 @@ const formatRelative = (value: string): string => {
 export default function NotificationsPage() {
   const queryClient = useQueryClient();
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const sessionQuery = useQuery({
     queryKey: ["session"],
@@ -77,15 +78,17 @@ export default function NotificationsPage() {
 
   const isAuthenticated = Boolean(sessionQuery.data?.user?.id);
 
-  const notificationsQuery = useQuery({
+  const notificationsQuery = useInfiniteQuery({
     queryKey: ["notifications", unreadOnly],
-    queryFn: () =>
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
       fetchForumNotifications({
-        limit: 100,
+        limit: 25,
+        cursor: pageParam,
         unreadOnly,
       }),
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
     enabled: isAuthenticated,
-    refetchInterval: isAuthenticated ? 10_000 : false,
     retry: false,
   });
 
@@ -103,7 +106,47 @@ export default function NotificationsPage() {
     },
   });
 
-  const notifications = isAuthenticated ? notificationsQuery.data?.notifications ?? [] : [];
+  const notifications = useMemo(() => {
+    if (!isAuthenticated) {
+      return [] as ForumNotification[];
+    }
+
+    const seen = new Set<string>();
+    return (notificationsQuery.data?.pages ?? [])
+      .flatMap((page) => page.notifications)
+      .filter((notification) => {
+        if (seen.has(notification.id)) {
+          return false;
+        }
+
+        seen.add(notification.id);
+        return true;
+      });
+  }, [isAuthenticated, notificationsQuery.data?.pages]);
+
+  const hasNextPage = notificationsQuery.hasNextPage;
+  const isFetchingNextPage = notificationsQuery.isFetchingNextPage;
+  const fetchNextPage = notificationsQuery.fetchNextPage;
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !hasNextPage || isFetchingNextPage) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void fetchNextPage();
+        }
+      },
+      { rootMargin: "320px" }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
+
   const unreadCount = notifications.filter((notification) => !notification.readAt).length;
 
   return (
@@ -119,9 +162,7 @@ export default function NotificationsPage() {
               <Badge className="border border-primary/30 bg-primary/10 text-primary">{unreadCount} unread</Badge>
             </h1>
             <p className="text-sm text-muted-foreground">
-              {isAuthenticated
-                ? "Auto-refresh every 10 seconds for near real-time updates."
-                : "Sign in to view your notifications."}
+              {isAuthenticated ? "Infinite list with cursor pagination from backend notifications." : "Sign in to view your notifications."}
             </p>
           </div>
 
@@ -225,6 +266,21 @@ export default function NotificationsPage() {
               </Card>
             );
           })}
+
+          {isAuthenticated && hasNextPage ? (
+            <div ref={loadMoreRef} className="py-1">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-border bg-card/80 text-muted-foreground hover:bg-card"
+                disabled={isFetchingNextPage}
+                onClick={() => void fetchNextPage()}
+              >
+                {isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : null}
+                Load more notifications
+              </Button>
+            </div>
+          ) : null}
         </div>
       </main>
     </div>

@@ -155,6 +155,7 @@ export type ForumNotification = {
 
 export type ForumNotificationsPayload = {
   notifications: ForumNotification[];
+  nextCursor: string | null;
 };
 
 export type ForumProfilePayload = {
@@ -484,10 +485,13 @@ export const setModerationPostLock = async (payload: { postId: string; locked: b
   });
 };
 
-export const fetchForumNotifications = async (input: { limit?: number; unreadOnly?: boolean } = {}): Promise<ForumNotificationsPayload> => {
+export const fetchForumNotifications = async (input: { limit?: number; cursor?: string; unreadOnly?: boolean } = {}): Promise<ForumNotificationsPayload> => {
   const params = new URLSearchParams();
   if (input.limit) {
     params.set("limit", String(input.limit));
+  }
+  if (input.cursor) {
+    params.set("cursor", input.cursor);
   }
   if (input.unreadOnly !== undefined) {
     params.set("unreadOnly", String(input.unreadOnly));
@@ -498,7 +502,7 @@ export const fetchForumNotifications = async (input: { limit?: number; unreadOnl
     cache: "no-store",
   });
 
-  return ensureOk(response, await parseJson<ForumNotificationsPayload>(response)) ?? { notifications: [] };
+  return ensureOk(response, await parseJson<ForumNotificationsPayload>(response)) ?? { notifications: [], nextCursor: null };
 };
 
 export const markForumNotificationRead = async (notificationId: string) => {

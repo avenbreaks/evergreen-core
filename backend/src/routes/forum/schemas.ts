@@ -111,6 +111,7 @@ export const moderationResolveBodySchema = z.object({
 
 export const notificationListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(200).optional(),
+  cursor: z.string().uuid().optional(),
   unreadOnly: z.coerce.boolean().optional(),
 });
 

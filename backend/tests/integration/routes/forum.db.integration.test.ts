@@ -598,6 +598,93 @@ test("forum DB integration marks all unread notifications as read", async (t) =>
   assert.equal(unreadAfter.json().notifications.length, 0);
 });
 
+test("forum DB integration paginates notification list with cursor", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const authorId = randomUUID();
+  const recipientUserId = randomUUID();
+  const walletId = randomUUID();
+  const walletAddress = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+  await insertUser({ id: authorId });
+  await insertUser({ id: recipientUserId });
+  await insertWallet({
+    id: walletId,
+    userId: recipientUserId,
+    chainId: 131,
+    address: walletAddress,
+    isPrimary: true,
+  });
+
+  const app = await buildForumDbTestApp();
+  const targetIds: string[] = [];
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [authorId, recipientUserId],
+      targetIds,
+    });
+  });
+
+  const createPostOne = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": authorId,
+    },
+    payload: {
+      title: `Notif pagination one ${authorId.slice(0, 8)}`,
+      markdown: `hello @${walletAddress}`,
+    },
+  });
+  assert.equal(createPostOne.statusCode, 200);
+  targetIds.push(createPostOne.json().post.id);
+
+  const createPostTwo = await app.inject({
+    method: "POST",
+    url: "/api/forum/posts",
+    headers: {
+      "x-test-user-id": authorId,
+    },
+    payload: {
+      title: `Notif pagination two ${authorId.slice(0, 8)}`,
+      markdown: `hello again @${walletAddress}`,
+    },
+  });
+  assert.equal(createPostTwo.statusCode, 200);
+  targetIds.push(createPostTwo.json().post.id);
+
+  const firstPageResponse = await app.inject({
+    method: "GET",
+    url: "/api/notifications?limit=1&unreadOnly=true",
+    headers: {
+      "x-test-user-id": recipientUserId,
+    },
+  });
+
+  assert.equal(firstPageResponse.statusCode, 200);
+  const firstPagePayload = firstPageResponse.json();
+  assert.equal(firstPagePayload.notifications.length, 1);
+  assert.ok(firstPagePayload.nextCursor);
+
+  const secondPageResponse = await app.inject({
+    method: "GET",
+    url: `/api/notifications?limit=1&unreadOnly=true&cursor=${firstPagePayload.nextCursor}`,
+    headers: {
+      "x-test-user-id": recipientUserId,
+    },
+  });
+
+  assert.equal(secondPageResponse.statusCode, 200);
+  const secondPagePayload = secondPageResponse.json();
+  assert.equal(secondPagePayload.notifications.length, 1);
+  assert.notEqual(secondPagePayload.notifications[0].id, firstPagePayload.notifications[0].id);
+});
+
 test("forum DB integration top topics ranks creators by aggregated popularity", async (t) => {
   if (!(await canConnectToDatabase())) {
     t.skip("integration database is not available");

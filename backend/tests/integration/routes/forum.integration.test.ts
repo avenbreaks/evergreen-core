@@ -449,6 +449,37 @@ test("forum moderation resolve route forwards payload", async (t) => {
   });
 });
 
+test("forum notifications list route forwards cursor pagination query", async (t) => {
+  let receivedInput: unknown = null;
+
+  const app = await buildForumTestApp({
+    listForumNotifications: async (input) => {
+      receivedInput = input;
+      return {
+        notifications: [],
+        nextCursor: null,
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/notifications?limit=19&cursor=${TEST_COMMENT_ID}&unreadOnly=true`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(receivedInput, {
+    userId: TEST_USER_ID,
+    limit: 19,
+    cursor: TEST_COMMENT_ID,
+    unreadOnly: true,
+  });
+});
+
 test("forum protected write route rejects missing auth", async (t) => {
   const app = await buildForumTestApp({
     requireAuthSessionMiddleware: async () => {

@@ -18,6 +18,7 @@ export const registerForumNotificationRoutes = (app: FastifyInstance, context: F
       return deps.listForumNotifications({
         userId: authSession.user.id,
         limit: query.limit,
+        cursor: query.cursor,
         unreadOnly: query.unreadOnly,
       });
     }

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 
 import { authDb } from "@evergreen-devparty/auth";
 import { schema } from "@evergreen-devparty/db";
@@ -10,22 +10,55 @@ export const listForumNotifications = async (input: {
   userId: string;
   limit?: number;
   unreadOnly?: boolean;
+  cursor?: string;
 }) => {
   const size = Math.max(1, Math.min(input.limit ?? 50, 200));
+  const filters = [eq(schema.forumNotifications.recipientUserId, input.userId)];
+
+  if (input.unreadOnly) {
+    filters.push(isNull(schema.forumNotifications.readAt));
+  }
+
+  if (input.cursor) {
+    const [cursorNotification] = await authDb
+      .select({
+        id: schema.forumNotifications.id,
+        createdAt: schema.forumNotifications.createdAt,
+      })
+      .from(schema.forumNotifications)
+      .where(
+        and(
+          eq(schema.forumNotifications.id, input.cursor),
+          eq(schema.forumNotifications.recipientUserId, input.userId)
+        )
+      )
+      .limit(1);
+
+    if (cursorNotification) {
+      const cursorFilter = or(
+        lt(schema.forumNotifications.createdAt, cursorNotification.createdAt),
+        and(
+          eq(schema.forumNotifications.createdAt, cursorNotification.createdAt),
+          lt(schema.forumNotifications.id, cursorNotification.id)
+        )
+      );
+
+      if (cursorFilter) {
+        filters.push(cursorFilter);
+      }
+    }
+  }
+
   const rows = await authDb
     .select()
     .from(schema.forumNotifications)
-    .where(
-      and(
-        eq(schema.forumNotifications.recipientUserId, input.userId),
-        input.unreadOnly ? isNull(schema.forumNotifications.readAt) : undefined
-      )
-    )
-    .orderBy(desc(schema.forumNotifications.createdAt))
+    .where(and(...filters))
+    .orderBy(desc(schema.forumNotifications.createdAt), desc(schema.forumNotifications.id))
     .limit(size);
 
   return {
     notifications: rows.map((row) => summarizeNotification(row)),
+    nextCursor: rows.at(-1)?.id ?? null,
   };
 };
 
