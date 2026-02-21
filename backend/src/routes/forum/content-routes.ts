@@ -52,6 +52,7 @@ export const registerForumContentRoutes = (app: FastifyInstance, context: ForumR
     return deps.listForumPosts({
       limit: query.limit,
       cursor: query.cursor,
+      authorId: query.authorId,
     });
   });
 

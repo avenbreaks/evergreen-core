@@ -256,6 +256,36 @@ test("forum route forwards search query params", async (t) => {
   });
 });
 
+test("forum posts list route forwards author filter query", async (t) => {
+  let receivedInput: unknown = null;
+
+  const app = await buildForumTestApp({
+    listForumPosts: async (input) => {
+      receivedInput = input;
+      return {
+        posts: [],
+        nextCursor: null,
+      };
+    },
+  });
+
+  t.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/forum/posts?limit=11&cursor=${TEST_POST_ID}&authorId=${TEST_USER_ID}`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(receivedInput, {
+    limit: 11,
+    cursor: TEST_POST_ID,
+    authorId: TEST_USER_ID,
+  });
+});
+
 test("forum route forwards feed params without auth for public feed", async (t) => {
   let authCalls = 0;
   let feedInput: unknown = null;

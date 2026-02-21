@@ -1,15 +1,17 @@
 "use client";
 
-import { useMemo } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 
-import { useQuery } from "@tanstack/react-query";
-import { Code2, Trophy } from "lucide-react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { ArrowRight, Code2, Loader2, MessageCircle, Trophy } from "lucide-react";
 
 import { EvergreenHeader } from "@/components/layout/evergreen-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchForumProfile, fetchMe } from "@/lib/api-client";
+import { fetchForumPosts, fetchForumProfile, fetchMe } from "@/lib/api-client";
 
 const looksLikeUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -47,6 +49,20 @@ export default function DeveloperProfilePage() {
     enabled: canFetchProfile,
   });
 
+  const authoredPostsQuery = useInfiniteQuery({
+    queryKey: ["forum-posts", "author", resolvedProfileId],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      fetchForumPosts({
+        authorId: resolvedProfileId,
+        limit: 12,
+        cursor: pageParam,
+      }),
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
+    enabled: canFetchProfile,
+    retry: false,
+  });
+
   const profile = profileQuery.data?.profile;
   const isOwnProfile = Boolean(meUserId && resolvedProfileId && meUserId === resolvedProfileId);
 
@@ -61,6 +77,44 @@ export default function DeveloperProfilePage() {
   const engagementScore = profile?.metrics?.engagementScore ?? 0;
 
   const unresolvedProfileRequest = !canFetchProfile && !meQuery.isPending;
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  const authoredPosts = useMemo(() => {
+    const seen = new Set<string>();
+    return (authoredPostsQuery.data?.pages ?? [])
+      .flatMap((page) => page.posts)
+      .filter((post) => {
+        if (seen.has(post.id)) {
+          return false;
+        }
+
+        seen.add(post.id);
+        return true;
+      });
+  }, [authoredPostsQuery.data?.pages]);
+
+  const hasMoreAuthoredPosts = authoredPostsQuery.hasNextPage;
+  const isFetchingMoreAuthoredPosts = authoredPostsQuery.isFetchingNextPage;
+  const fetchMoreAuthoredPosts = authoredPostsQuery.fetchNextPage;
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !hasMoreAuthoredPosts || isFetchingMoreAuthoredPosts) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void fetchMoreAuthoredPosts();
+        }
+      },
+      { rootMargin: "320px" }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchMoreAuthoredPosts, hasMoreAuthoredPosts, isFetchingMoreAuthoredPosts]);
 
   return (
     <div className="min-h-screen">
@@ -194,6 +248,75 @@ export default function DeveloperProfilePage() {
                 <div className="size-3 rounded-sm bg-primary/80" />
                 <span>More</span>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card/90">
+            <CardHeader>
+              <CardTitle className="text-lg">Recent Threads</CardTitle>
+              <CardDescription>Latest discussions by this profile from `/api/forum/posts?authorId=...`.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {canFetchProfile && authoredPostsQuery.isPending ? (
+                <div className="flex items-center gap-2 rounded-md border border-border bg-background p-3 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading authored threads...
+                </div>
+              ) : null}
+
+              {canFetchProfile && authoredPostsQuery.isError ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {authoredPostsQuery.error instanceof Error ? authoredPostsQuery.error.message : "Could not load authored threads"}
+                </div>
+              ) : null}
+
+              {canFetchProfile && !authoredPostsQuery.isPending && !authoredPostsQuery.isError && authoredPosts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No published threads from this profile yet.</p>
+              ) : null}
+
+              {authoredPosts.map((post) => (
+                <div key={post.id} className="rounded-lg border border-border bg-background p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <Link href={`/thread/${post.id}`} className="text-sm font-semibold text-foreground hover:text-primary">
+                        {post.title}
+                      </Link>
+                      <p className="text-xs text-muted-foreground">slug: {post.slug}</p>
+                    </div>
+                    <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground">
+                      <Link href={`/thread/${post.id}`}>
+                        Open
+                        <ArrowRight className="size-4" />
+                      </Link>
+                    </Button>
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      <MessageCircle className="size-3.5" />
+                      {post.commentCount}
+                    </span>
+                    <span>reactions: {post.reactionCount}</span>
+                    <span>shares: {post.shareCount}</span>
+                    <span>bookmarks: {post.bookmarkCount}</span>
+                  </div>
+                </div>
+              ))}
+
+              {canFetchProfile && hasMoreAuthoredPosts ? (
+                <div ref={loadMoreRef} className="pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-border bg-background text-muted-foreground hover:bg-card"
+                    disabled={isFetchingMoreAuthoredPosts}
+                    onClick={() => void fetchMoreAuthoredPosts()}
+                  >
+                    {isFetchingMoreAuthoredPosts ? <Loader2 className="size-4 animate-spin" /> : null}
+                    Load more authored threads
+                  </Button>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 

@@ -40,6 +40,7 @@ export const commentParamsSchema = z.object({
 export const listPostsQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).optional(),
   cursor: z.string().uuid().optional(),
+  authorId: z.string().uuid().optional(),
 });
 
 export const draftQuerySchema = z.object({

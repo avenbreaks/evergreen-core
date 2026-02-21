@@ -559,6 +559,31 @@ export const fetchForumFeed = async (input: {
   return payload ?? { posts: [], nextCursor: null };
 };
 
+export const fetchForumPosts = async (input: {
+  limit?: number;
+  cursor?: string;
+  authorId?: string;
+} = {}): Promise<ForumFeedPayload> => {
+  const params = new URLSearchParams();
+  if (input.limit) {
+    params.set("limit", String(input.limit));
+  }
+  if (input.cursor) {
+    params.set("cursor", input.cursor);
+  }
+  if (input.authorId) {
+    params.set("authorId", input.authorId);
+  }
+
+  const query = params.toString();
+  const response = await fetch(`/api/forum/posts${query ? `?${query}` : ""}`, {
+    cache: "no-store",
+  });
+
+  const payload = ensureOk(response, await parseJson<ForumFeedPayload>(response));
+  return payload ?? { posts: [], nextCursor: null };
+};
+
 export const fetchForumSearch = async (input: { query: string; limit?: number }): Promise<ForumSearchPayload> => {
   const queryText = input.query.trim();
   if (!queryText) {

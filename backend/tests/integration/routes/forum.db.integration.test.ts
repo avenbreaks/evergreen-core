@@ -685,6 +685,59 @@ test("forum DB integration paginates notification list with cursor", async (t) =
   assert.notEqual(secondPagePayload.notifications[0].id, firstPagePayload.notifications[0].id);
 });
 
+test("forum DB integration filters list posts by authorId", async (t) => {
+  if (!(await canConnectToDatabase())) {
+    t.skip("integration database is not available");
+    return;
+  }
+
+  const authorId = randomUUID();
+  const otherAuthorId = randomUUID();
+  const authorPostId = randomUUID();
+  const otherPostId = randomUUID();
+
+  await insertUser({ id: authorId });
+  await insertUser({ id: otherAuthorId });
+
+  await insertForumPostRow({
+    id: authorPostId,
+    authorId,
+    title: `Author scoped post ${authorId.slice(0, 8)}`,
+    slug: `author-scoped-${authorId.slice(0, 8)}`,
+  });
+
+  await insertForumPostRow({
+    id: otherPostId,
+    authorId: otherAuthorId,
+    title: `Other author post ${otherAuthorId.slice(0, 8)}`,
+    slug: `other-author-${otherAuthorId.slice(0, 8)}`,
+  });
+
+  const app = await buildForumDbTestApp();
+
+  t.after(async () => {
+    await app.close();
+    await cleanupUsersAndQueueTargets({
+      userIds: [authorId, otherAuthorId],
+      targetIds: [authorPostId, otherPostId],
+    });
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/forum/posts?limit=20&authorId=${authorId}`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  const payload = response.json() as {
+    posts: Array<{ id: string; authorId: string }>;
+  };
+
+  assert.equal(payload.posts.some((post) => post.id === authorPostId), true);
+  assert.equal(payload.posts.some((post) => post.id === otherPostId), false);
+  assert.equal(payload.posts.every((post) => post.authorId === authorId), true);
+});
+
 test("forum DB integration top topics ranks creators by aggregated popularity", async (t) => {
   if (!(await canConnectToDatabase())) {
     t.skip("integration database is not available");

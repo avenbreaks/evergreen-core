@@ -242,9 +242,13 @@ export const softDeleteForumPost = async (input: { userId: string; postId: strin
   };
 };
 
-export const listForumPosts = async (input: { limit?: number; cursor?: string } = {}) => {
+export const listForumPosts = async (input: { limit?: number; cursor?: string; authorId?: string } = {}) => {
   const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
   const filters = [eq(schema.forumPosts.status, "published")];
+
+  if (input.authorId) {
+    filters.push(eq(schema.forumPosts.authorId, input.authorId));
+  }
 
   if (input.cursor) {
     const [cursorPost] = await authDb
