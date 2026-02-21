@@ -62,7 +62,21 @@ export type EnsTransactionPreview = {
   functionName?: string;
   args?: unknown[];
   value?: string;
+  data?: string;
   [key: string]: unknown;
+};
+
+export type SiweChallengePayload = {
+  nonce: string;
+  message: string;
+  expiresAt?: string;
+};
+
+export type LinkWalletPayload = {
+  linked: boolean;
+  userId: string;
+  walletAddress: string;
+  chainId: number;
 };
 
 export type EnsPurchaseIntent = {
@@ -374,6 +388,32 @@ export const fetchMe = async (): Promise<MePayload> => {
   }
 
   return parseJson<MePayload>(response);
+};
+
+export const createSiweChallenge = async (payload: {
+  walletAddress: string;
+  chainId?: number;
+  statement?: string;
+}): Promise<SiweChallengePayload> => {
+  const data = await postJson<SiweChallengePayload>("/api/siwe/challenge", payload);
+  if (!data) {
+    throw new Error("Empty SIWE challenge response");
+  }
+
+  return data;
+};
+
+export const linkWalletToMe = async (payload: {
+  message: string;
+  signature: string;
+  setAsPrimary?: boolean;
+}): Promise<LinkWalletPayload> => {
+  const data = await postJson<LinkWalletPayload>("/api/me/wallets/link", payload);
+  if (!data) {
+    throw new Error("Empty wallet link response");
+  }
+
+  return data;
 };
 
 export const fetchNetwork = async (): Promise<NetworkPayload> => {

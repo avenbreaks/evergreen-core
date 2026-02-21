@@ -5,6 +5,7 @@ import {
   createPublicClient,
   decodeFunctionData,
   decodeEventLog,
+  encodeFunctionData,
   http,
   isAddress,
   keccak256,
@@ -674,6 +675,11 @@ export const createCommitmentIntent = async (input: {
       functionName: "commit",
       args: [commitment],
       value: "0",
+      data: encodeFunctionData({
+        abi: controllerAbi,
+        functionName: "commit",
+        args: [commitment],
+      }),
     },
     registration,
   };
@@ -850,6 +856,11 @@ export const prepareRegisterTransaction = async (input: {
       functionName: "register",
       args: [registration],
       value: price.valueWithBuffer.toString(),
+      data: encodeFunctionData({
+        abi: getAbiBundle().controllerAbi,
+        functionName: "register",
+        args: [registration],
+      }),
     },
   };
 };
