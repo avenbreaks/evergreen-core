@@ -28,7 +28,7 @@ export default function Home() {
 
             <div className="flex flex-col items-center gap-3 sm:flex-row">
               <Button asChild size="lg" className="soft-glow bg-primary text-primary-foreground hover:bg-primary/90">
-                <Link href="/onboarding/register">
+                <Link href="/login?mode=signup&next=%2Fonboarding%2Fens">
                   Start Building
                   <ArrowRight className="size-4" />
                 </Link>

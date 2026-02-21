@@ -241,7 +241,7 @@ function LoginPageContent() {
             </form>
 
             <p className="text-xs text-muted-foreground">
-              Need the full onboarding flow? Open <Link href="/onboarding/register" className="text-primary hover:underline">register onboarding</Link>.
+              New account path: sign up here, then continue to <Link href="/onboarding/ens" className="text-primary hover:underline">ENS onboarding</Link>.
             </p>
           </CardContent>
         </Card>
