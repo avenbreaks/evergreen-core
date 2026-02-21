@@ -321,13 +321,29 @@ export const patchJson = async <TResponse>(url: string, payload: unknown): Promi
   });
 };
 
+const normalizeEnsTld = (item: unknown): string => {
+  if (typeof item === "string") {
+    return item.trim().toLowerCase();
+  }
+
+  if (item && typeof item === "object" && "tld" in item && typeof (item as { tld?: unknown }).tld === "string") {
+    return (item as { tld: string }).tld.trim().toLowerCase();
+  }
+
+  return "";
+};
+
 export const fetchEnsTlds = async (): Promise<EnsTldsPayload> => {
   const response = await fetch("/api/ens/tlds", {
     cache: "no-store",
   });
 
-  const data = ensureOk(response, await parseJson<EnsTldsPayload>(response));
-  return data ?? { tlds: [] };
+  const data = ensureOk<{ tlds?: unknown }>(response, await parseJson<{ tlds?: unknown }>(response));
+  const source = Array.isArray(data?.tlds) ? data.tlds : [];
+
+  return {
+    tlds: Array.from(new Set(source.map((item) => normalizeEnsTld(item)).filter(Boolean))),
+  };
 };
 
 export const postEnsCheck = async (payload: {

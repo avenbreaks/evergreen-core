@@ -82,7 +82,7 @@ export const ensRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/ens/tlds", async () => ({
-    tlds: listEnsTlds(),
+    tlds: listEnsTlds().map((item) => item.tld),
   }));
 
   app.post(

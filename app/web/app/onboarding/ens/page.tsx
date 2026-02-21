@@ -26,8 +26,13 @@ export default function EnsOnboardingStepOnePage() {
   });
 
   const availableTlds = useMemo(() => {
-    const list = tldsQuery.data?.tlds?.length ? tldsQuery.data.tlds : fallbackTlds;
-    return Array.from(new Set(list.map((item) => item.trim().toLowerCase()).filter(Boolean)));
+    const source = tldsQuery.data?.tlds?.length ? tldsQuery.data.tlds : fallbackTlds;
+    const normalized = source
+      .map((item) => (typeof item === "string" ? item : ""))
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+
+    return Array.from(new Set(normalized));
   }, [tldsQuery.data?.tlds]);
 
   const ensCheckMutation = useMutation({
