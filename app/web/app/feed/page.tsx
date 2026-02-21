@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { type InfiniteData, type QueryKey, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,6 +7,7 @@ import { Bookmark, Loader2, MessageCircle, Plus, Search, Share2, ThumbsUp, UserP
 
 import { ViewerSummaryCard } from "@/components/auth/viewer-summary-card";
 import { EvergreenHeader } from "@/components/layout/evergreen-header";
+import { ThreadPrefetchLink } from "@/components/navigation/thread-prefetch-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -522,9 +522,9 @@ export default function FeedPage() {
                     ) : null}
                   </div>
                   <CardTitle className="text-xl leading-tight">
-                    <Link href={`/thread/${post.id}`} className="hover:text-primary">
+                    <ThreadPrefetchLink postId={post.id} className="hover:text-primary">
                       {post.title}
-                    </Link>
+                    </ThreadPrefetchLink>
                   </CardTitle>
                   <CardDescription>
                     API currently returns metadata summaries for feed cards. Open thread to continue discussion.
@@ -564,10 +564,10 @@ export default function FeedPage() {
                         {post.reactionCount}
                       </button>
                       <Button asChild variant="ghost" size="sm" className="h-6 px-0 text-xs text-muted-foreground hover:text-foreground">
-                        <Link href={`/thread/${post.id}`}>
+                        <ThreadPrefetchLink postId={post.id}>
                           <MessageCircle className="size-4" />
                           {post.commentCount}
-                        </Link>
+                        </ThreadPrefetchLink>
                       </Button>
                       <button
                         className="inline-flex items-center gap-1 hover:text-foreground"
@@ -596,7 +596,7 @@ export default function FeedPage() {
                         {post.shareCount}
                       </button>
                       <Button asChild variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground">
-                        <Link href={`/thread/${post.id}`}>Open Thread</Link>
+                        <ThreadPrefetchLink postId={post.id}>Open Thread</ThreadPrefetchLink>
                       </Button>
                     </div>
                   </div>

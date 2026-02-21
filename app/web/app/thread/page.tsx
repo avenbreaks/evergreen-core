@@ -1,12 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Filter, Loader2, MessageCircle, Search } from "lucide-react";
 
 import { EvergreenHeader } from "@/components/layout/evergreen-header";
+import { ThreadPrefetchLink } from "@/components/navigation/thread-prefetch-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -215,9 +215,9 @@ export default function ThreadLandingPage() {
                   <span>author:{post.authorId.slice(0, 8)}</span>
                 </div>
                 <CardTitle className="text-xl leading-tight">
-                  <Link href={`/thread/${post.id}`} className="hover:text-primary">
+                  <ThreadPrefetchLink postId={post.id} className="hover:text-primary">
                     {post.title}
-                  </Link>
+                  </ThreadPrefetchLink>
                 </CardTitle>
                 <CardDescription>slug: {post.slug}</CardDescription>
               </CardHeader>
@@ -243,10 +243,10 @@ export default function ThreadLandingPage() {
                 </div>
 
                 <Button asChild variant="outline" size="sm" className="border-border bg-background hover:bg-card">
-                  <Link href={`/thread/${post.id}`}>
+                  <ThreadPrefetchLink postId={post.id}>
                     Open thread
                     <ArrowRight className="size-4" />
-                  </Link>
+                  </ThreadPrefetchLink>
                 </Button>
               </CardContent>
             </Card>

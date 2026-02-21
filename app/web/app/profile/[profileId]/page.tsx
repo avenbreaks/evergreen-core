@@ -1,13 +1,13 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Code2, Loader2, MessageCircle, Trophy } from "lucide-react";
 
 import { EvergreenHeader } from "@/components/layout/evergreen-header";
+import { ThreadPrefetchLink } from "@/components/navigation/thread-prefetch-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -78,6 +78,7 @@ export default function DeveloperProfilePage() {
 
   const unresolvedProfileRequest = !canFetchProfile && !meQuery.isPending;
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const [threadSort, setThreadSort] = useState<"latest" | "mostDiscussed" | "pinnedFirst">("latest");
 
   const authoredPosts = useMemo(() => {
     const seen = new Set<string>();
@@ -92,6 +93,33 @@ export default function DeveloperProfilePage() {
         return true;
       });
   }, [authoredPostsQuery.data?.pages]);
+
+  const sortedAuthoredPosts = useMemo(() => {
+    const rankLatest = (value: { lastActivityAt: string; createdAt: string }) => {
+      const lastActivityAt = Date.parse(value.lastActivityAt || "");
+      const createdAt = Date.parse(value.createdAt || "");
+      return Math.max(Number.isNaN(lastActivityAt) ? 0 : lastActivityAt, Number.isNaN(createdAt) ? 0 : createdAt);
+    };
+
+    const items = [...authoredPosts];
+    items.sort((left, right) => {
+      if (threadSort === "mostDiscussed") {
+        const discussionScoreLeft = left.commentCount * 3 + left.reactionCount + left.shareCount;
+        const discussionScoreRight = right.commentCount * 3 + right.reactionCount + right.shareCount;
+        if (discussionScoreLeft !== discussionScoreRight) {
+          return discussionScoreRight - discussionScoreLeft;
+        }
+      }
+
+      if (threadSort === "pinnedFirst" && left.isPinned !== right.isPinned) {
+        return left.isPinned ? -1 : 1;
+      }
+
+      return rankLatest(right) - rankLatest(left);
+    });
+
+    return items;
+  }, [authoredPosts, threadSort]);
 
   const hasMoreAuthoredPosts = authoredPostsQuery.hasNextPage;
   const isFetchingMoreAuthoredPosts = authoredPostsQuery.isFetchingNextPage;
@@ -253,8 +281,41 @@ export default function DeveloperProfilePage() {
 
           <Card className="border-border bg-card/90">
             <CardHeader>
-              <CardTitle className="text-lg">Recent Threads</CardTitle>
-              <CardDescription>Latest discussions by this profile from `/api/forum/posts?authorId=...`.</CardDescription>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg">Recent Threads</CardTitle>
+                  <CardDescription>Latest discussions by this profile from `/api/forum/posts?authorId=...`.</CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={threadSort === "latest" ? "default" : "outline"}
+                    className={threadSort === "latest" ? "bg-primary text-primary-foreground" : "border-border bg-background"}
+                    onClick={() => setThreadSort("latest")}
+                  >
+                    Latest
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={threadSort === "mostDiscussed" ? "default" : "outline"}
+                    className={threadSort === "mostDiscussed" ? "bg-primary text-primary-foreground" : "border-border bg-background"}
+                    onClick={() => setThreadSort("mostDiscussed")}
+                  >
+                    Most discussed
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={threadSort === "pinnedFirst" ? "default" : "outline"}
+                    className={threadSort === "pinnedFirst" ? "bg-primary text-primary-foreground" : "border-border bg-background"}
+                    onClick={() => setThreadSort("pinnedFirst")}
+                  >
+                    Pinned first
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
               {canFetchProfile && authoredPostsQuery.isPending ? (
@@ -274,20 +335,20 @@ export default function DeveloperProfilePage() {
                 <p className="text-sm text-muted-foreground">No published threads from this profile yet.</p>
               ) : null}
 
-              {authoredPosts.map((post) => (
+              {sortedAuthoredPosts.map((post) => (
                 <div key={post.id} className="rounded-lg border border-border bg-background p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
-                      <Link href={`/thread/${post.id}`} className="text-sm font-semibold text-foreground hover:text-primary">
+                      <ThreadPrefetchLink postId={post.id} className="text-sm font-semibold text-foreground hover:text-primary">
                         {post.title}
-                      </Link>
+                      </ThreadPrefetchLink>
                       <p className="text-xs text-muted-foreground">slug: {post.slug}</p>
                     </div>
                     <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground">
-                      <Link href={`/thread/${post.id}`}>
+                      <ThreadPrefetchLink postId={post.id}>
                         Open
                         <ArrowRight className="size-4" />
-                      </Link>
+                      </ThreadPrefetchLink>
                     </Button>
                   </div>
 
