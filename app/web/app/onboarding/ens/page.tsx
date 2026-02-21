@@ -207,6 +207,9 @@ export default function EnsOnboardingPage() {
     return (
       message.includes("tx_receipt_pending") ||
       message.includes("pending on-chain") ||
+      message.includes("commitment_not_found") ||
+      message.includes("commitment was not recorded on-chain") ||
+      message.includes("commitment is not visible on-chain yet") ||
       message.includes("transaction receipt") ||
       message.includes("not processed on a block yet") ||
       message.includes("wait a few seconds")

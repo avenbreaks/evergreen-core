@@ -113,6 +113,8 @@ const toPriceSummary = (base: bigint, premium: bigint) => {
 
 const TX_RECEIPT_POLL_ATTEMPTS = 12;
 const TX_RECEIPT_POLL_INTERVAL_MS = 1500;
+const COMMITMENT_POLL_ATTEMPTS = 8;
+const COMMITMENT_POLL_INTERVAL_MS = 1000;
 
 const sleep = async (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -156,6 +158,52 @@ const getTransactionReceiptWithRetry = async (txHash: Hex) => {
     {
       txHash,
       retryAfterSeconds: Math.ceil(TX_RECEIPT_POLL_INTERVAL_MS / 1000),
+    }
+  );
+};
+
+const readCommitmentTimestamp = async (input: {
+  controllerAddress: Address;
+  commitment: Hex;
+}): Promise<bigint> => {
+  const timestamp = (await publicClient.readContract({
+    address: input.controllerAddress,
+    abi: getAbiBundle().controllerAbi,
+    functionName: "commitments",
+    args: [input.commitment],
+  })) as bigint;
+
+  return timestamp;
+};
+
+const getCommitmentTimestampWithRetry = async (input: {
+  controllerAddress: Address;
+  commitment: Hex;
+  txHash?: Hex;
+}): Promise<bigint> => {
+  for (let attempt = 0; attempt < COMMITMENT_POLL_ATTEMPTS; attempt += 1) {
+    const timestamp = await readCommitmentTimestamp({
+      controllerAddress: input.controllerAddress,
+      commitment: input.commitment,
+    });
+
+    if (timestamp > 0n) {
+      return timestamp;
+    }
+
+    if (attempt < COMMITMENT_POLL_ATTEMPTS - 1) {
+      await sleep(COMMITMENT_POLL_INTERVAL_MS);
+    }
+  }
+
+  throw new HttpError(
+    409,
+    "COMMITMENT_NOT_FOUND",
+    "Commitment is not visible on-chain yet. Wait a few seconds and retry confirmation.",
+    {
+      txHash: input.txHash,
+      commitment: input.commitment,
+      retryAfterSeconds: Math.ceil(COMMITMENT_POLL_INTERVAL_MS / 1000),
     }
   );
 };
@@ -755,15 +803,9 @@ export const confirmCommitmentIntent = async (input: {
     throw new HttpError(409, "INTENT_STATE_INVALID", `Cannot confirm commitment from state '${intent.status}'`);
   }
 
-  const [receipt, tx, commitmentTimestamp] = await Promise.all([
+  const [receipt, tx] = await Promise.all([
     getTransactionReceiptWithRetry(txHash),
     publicClient.getTransaction({ hash: txHash }),
-    publicClient.readContract({
-      address: intent.controllerAddress as Address,
-      abi: getAbiBundle().controllerAbi,
-      functionName: "commitments",
-      args: [intent.commitment as Hex],
-    }),
   ]);
 
   if (receipt.status !== "success") {
@@ -783,13 +825,15 @@ export const confirmCommitmentIntent = async (input: {
     expectedCommitment: intent.commitment,
   });
 
-  if ((commitmentTimestamp as bigint) === 0n) {
-    throw new HttpError(409, "COMMITMENT_NOT_FOUND", "Commitment was not recorded on-chain");
-  }
+  const commitmentTimestamp = await getCommitmentTimestampWithRetry({
+    controllerAddress: intent.controllerAddress as Address,
+    commitment: intent.commitment as Hex,
+    txHash,
+  });
 
-  const committedAt = secondsToDate(commitmentTimestamp as bigint);
-  const registerableAtSeconds = (commitmentTimestamp as bigint) + BigInt(intent.minCommitmentAgeSeconds);
-  const registerBySeconds = (commitmentTimestamp as bigint) + BigInt(intent.maxCommitmentAgeSeconds);
+  const committedAt = secondsToDate(commitmentTimestamp);
+  const registerableAtSeconds = commitmentTimestamp + BigInt(intent.minCommitmentAgeSeconds);
+  const registerBySeconds = commitmentTimestamp + BigInt(intent.maxCommitmentAgeSeconds);
   const registerableAt = secondsToDate(registerableAtSeconds);
   const registerBy = secondsToDate(registerBySeconds);
   const now = new Date();
