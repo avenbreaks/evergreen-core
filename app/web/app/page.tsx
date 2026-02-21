@@ -178,6 +178,23 @@ export default function Home() {
             </Button>
           </div>
         </section>
+
+        <footer className="border-t border-border bg-card/70">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Evergreen Devparty</p>
+              <p className="text-xs text-muted-foreground">Build reputation through technical depth and verifiable identity.</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+              <Link href="/feed" className="hover:text-foreground">Feed</Link>
+              <Link href="/thread" className="hover:text-foreground">Threads</Link>
+              <Link href="/notifications" className="hover:text-foreground">Notifications</Link>
+              <Link href="/settings/profile" className="hover:text-foreground">Settings</Link>
+              <Link href="/login" className="hover:text-foreground">Login</Link>
+            </div>
+          </div>
+        </footer>
       </main>
     </div>
   );

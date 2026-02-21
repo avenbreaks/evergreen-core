@@ -1,17 +1,15 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, LogOut, UserRound } from "lucide-react";
+import { Loader2, LogIn, LogOut } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AUTH_REQUIRED_EVENT_NAME, fetchSession, postJson } from "@/lib/api-client";
 
 type SessionDockProps = {
@@ -27,52 +25,37 @@ const initialsFromIdentity = (name?: string | null, email?: string | null): stri
   return `${first}${second}`.toUpperCase();
 };
 
+const normalizeNextPath = (value: string): string => {
+  if (!value.startsWith("/") || value.startsWith("//")) {
+    return "/feed";
+  }
+
+  if (value.startsWith("/login")) {
+    return "/feed";
+  }
+
+  return value;
+};
+
+const buildLoginHref = (nextPath: string, message?: string): string => {
+  const params = new URLSearchParams();
+  params.set("next", nextPath);
+  if (message) {
+    params.set("message", message);
+  }
+
+  const query = params.toString();
+  return `/login${query ? `?${query}` : ""}`;
+};
+
 export function SessionDock({ compact = false }: SessionDockProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"signin" | "signup">("signin");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const [signinEmail, setSigninEmail] = useState("");
-  const [signinPassword, setSigninPassword] = useState("");
-
-  const [signupName, setSignupName] = useState("");
-  const [signupEmail, setSignupEmail] = useState("");
-  const [signupPassword, setSignupPassword] = useState("");
 
   const { data: session, isPending: isSessionLoading } = useQuery({
     queryKey: ["session"],
     queryFn: fetchSession,
-  });
-
-  const signInMutation = useMutation({
-    mutationFn: (payload: { email: string; password: string }) => postJson("/api/auth/sign-in", payload),
-    onSuccess: async () => {
-      setSheetOpen(false);
-      setErrorMessage(null);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["session"] }),
-        queryClient.invalidateQueries({ queryKey: ["me"] }),
-      ]);
-    },
-    onError: (error) => {
-      setErrorMessage(error instanceof Error ? error.message : "Sign in failed");
-    },
-  });
-
-  const signUpMutation = useMutation({
-    mutationFn: (payload: { name: string; email: string; password: string }) => postJson("/api/auth/sign-up", payload),
-    onSuccess: async () => {
-      setSheetOpen(false);
-      setErrorMessage(null);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["session"] }),
-        queryClient.invalidateQueries({ queryKey: ["me"] }),
-      ]);
-    },
-    onError: (error) => {
-      setErrorMessage(error instanceof Error ? error.message : "Sign up failed");
-    },
   });
 
   const signOutMutation = useMutation({
@@ -95,6 +78,12 @@ export function SessionDock({ compact = false }: SessionDockProps) {
     return authenticatedUser.name || authenticatedUser.email || "Member";
   }, [authenticatedUser]);
 
+  const currentPath = useMemo(() => {
+    return normalizeNextPath(pathname || "/");
+  }, [pathname]);
+
+  const loginHref = useMemo(() => buildLoginHref(currentPath), [currentPath]);
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -106,35 +95,14 @@ export function SessionDock({ compact = false }: SessionDockProps) {
       }
 
       const customEvent = event as CustomEvent<{ message?: string }>;
-      setActiveTab("signin");
-      setErrorMessage(customEvent.detail?.message || "Please sign in to continue.");
-      setSheetOpen(true);
+      router.push(buildLoginHref(currentPath, customEvent.detail?.message || "Please sign in to continue."));
     };
 
     window.addEventListener(AUTH_REQUIRED_EVENT_NAME, handleAuthRequired as EventListener);
     return () => {
       window.removeEventListener(AUTH_REQUIRED_EVENT_NAME, handleAuthRequired as EventListener);
     };
-  }, [authenticatedUser]);
-
-  const handleSignIn = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setErrorMessage(null);
-    signInMutation.mutate({
-      email: signinEmail,
-      password: signinPassword,
-    });
-  };
-
-  const handleSignUp = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setErrorMessage(null);
-    signUpMutation.mutate({
-      name: signupName,
-      email: signupEmail,
-      password: signupPassword,
-    });
-  };
+  }, [authenticatedUser, currentPath, router]);
 
   if (isSessionLoading) {
     return <Badge variant="outline">Auth: loading...</Badge>;
@@ -165,106 +133,11 @@ export function SessionDock({ compact = false }: SessionDockProps) {
   }
 
   return (
-    <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-      <SheetTrigger asChild>
-        <Button className="bg-primary text-primary-foreground hover:bg-primary/90" size={compact ? "sm" : "default"}>
-          <UserRound className="size-4" />
-          {compact ? "Sign in" : "Connect Wallet / Sign in"}
-        </Button>
-      </SheetTrigger>
-      <SheetContent side="right" className="w-full max-w-md border-border bg-card">
-        <SheetHeader>
-          <SheetTitle>Welcome back to Evergreen</SheetTitle>
-          <SheetDescription>Use your email account tied to Better Auth.</SheetDescription>
-        </SheetHeader>
-
-        <div className="space-y-4 p-4">
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "signin" | "signup") }>
-            <TabsList className="grid w-full grid-cols-2 bg-background">
-              <TabsTrigger value="signin">Sign in</TabsTrigger>
-              <TabsTrigger value="signup">Sign up</TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          {errorMessage ? <p className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive">{errorMessage}</p> : null}
-
-          {activeTab === "signin" ? (
-            <form className="space-y-3" onSubmit={handleSignIn}>
-              <div className="space-y-1.5">
-                <Label htmlFor="signin-email">Email</Label>
-                <Input
-                  id="signin-email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={signinEmail}
-                  onChange={(event) => setSigninEmail(event.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="signin-password">Password</Label>
-                <Input
-                  id="signin-password"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="********"
-                  value={signinPassword}
-                  onChange={(event) => setSigninPassword(event.target.value)}
-                  required
-                />
-              </div>
-              <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90" disabled={signInMutation.isPending}>
-                {signInMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-                Continue
-              </Button>
-            </form>
-          ) : (
-            <form className="space-y-3" onSubmit={handleSignUp}>
-              <div className="space-y-1.5">
-                <Label htmlFor="signup-name">Name</Label>
-                <Input
-                  id="signup-name"
-                  type="text"
-                  autoComplete="name"
-                  placeholder="Your name"
-                  value={signupName}
-                  onChange={(event) => setSignupName(event.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="signup-email">Email</Label>
-                <Input
-                  id="signup-email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={signupEmail}
-                  onChange={(event) => setSignupEmail(event.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="signup-password">Password</Label>
-                <Input
-                  id="signup-password"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="At least 8 chars"
-                  value={signupPassword}
-                  onChange={(event) => setSignupPassword(event.target.value)}
-                  required
-                />
-              </div>
-              <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90" disabled={signUpMutation.isPending}>
-                {signUpMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-                Create account
-              </Button>
-            </form>
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
+    <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90" size={compact ? "sm" : "default"}>
+      <Link href={loginHref}>
+        <LogIn className="size-4" />
+        {compact ? "Sign in" : "Go to login"}
+      </Link>
+    </Button>
   );
 }

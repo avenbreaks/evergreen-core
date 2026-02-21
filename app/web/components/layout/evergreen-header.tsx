@@ -1,20 +1,25 @@
-import Link from "next/link";
+"use client";
 
-import { Search, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+import { Home, MessageSquare, Search, Sparkles } from "lucide-react";
 
 import { BackendHealthPill } from "@/components/backend-health-pill";
 import { SessionDock } from "@/components/auth/session-dock";
 import { NotificationsNavLink } from "@/components/layout/notifications-nav-link";
 import { ProfileNavLink } from "@/components/layout/profile-nav-link";
 import { NetworkPill } from "@/components/network-pill";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type EvergreenHeaderProps = {
   showSearch?: boolean;
 };
 
 export function EvergreenHeader({ showSearch = true }: EvergreenHeaderProps) {
+  const pathname = usePathname();
+
   return (
     <header className="sticky top-0 z-50 border-b border-border/80 bg-background/90 backdrop-blur-md">
       <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
@@ -26,15 +31,33 @@ export function EvergreenHeader({ showSearch = true }: EvergreenHeaderProps) {
             <span className="text-sm font-bold tracking-wide">Evergreen Devparty</span>
           </Link>
 
-          <nav className="hidden items-center gap-1 md:flex">
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-              <Link href="/feed">Feed</Link>
-            </Button>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-              <Link href="/thread">Threads</Link>
-            </Button>
-            <NotificationsNavLink />
-            <ProfileNavLink />
+          <nav className="hidden md:flex">
+            <div className="inline-flex items-center gap-1 rounded-full border border-border bg-card/80 p-1 shadow-sm">
+              <Link
+                href="/feed"
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition",
+                  pathname === "/feed" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-background hover:text-foreground"
+                )}
+              >
+                <Home className="size-3.5" />
+                <span>Feed</span>
+              </Link>
+              <Link
+                href="/thread"
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition",
+                  pathname === "/thread" || pathname.startsWith("/thread/")
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:bg-background hover:text-foreground"
+                )}
+              >
+                <MessageSquare className="size-3.5" />
+                <span>Threads</span>
+              </Link>
+              <NotificationsNavLink />
+              <ProfileNavLink />
+            </div>
           </nav>
         </div>
 
