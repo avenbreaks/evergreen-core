@@ -249,12 +249,9 @@ export default function EnsOnboardingPage() {
         throw new Error("Wallet account was not returned.");
       }
 
-      const rawChain = await provider.request({ method: "eth_chainId" });
-      const chainId = typeof rawChain === "string" ? Number.parseInt(rawChain, 16) : ENS_CHAIN_ID;
-
       const challenge = await createSiweChallenge({
         walletAddress: account,
-        chainId: Number.isFinite(chainId) && chainId > 0 ? chainId : ENS_CHAIN_ID,
+        chainId: ENS_CHAIN_ID,
         statement: "Link wallet to claim ENS identity",
       });
 
