@@ -111,6 +111,55 @@ const toPriceSummary = (base: bigint, premium: bigint) => {
   };
 };
 
+const TX_RECEIPT_POLL_ATTEMPTS = 12;
+const TX_RECEIPT_POLL_INTERVAL_MS = 1500;
+
+const sleep = async (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const isReceiptPendingError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const name = error.name.toLowerCase();
+  const message = error.message.toLowerCase();
+
+  return (
+    name.includes("transactionreceiptnotfound") ||
+    (message.includes("transaction receipt") && (message.includes("could not be found") || message.includes("not found"))) ||
+    message.includes("transaction may not be processed on a block yet")
+  );
+};
+
+const getTransactionReceiptWithRetry = async (txHash: Hex) => {
+  for (let attempt = 0; attempt < TX_RECEIPT_POLL_ATTEMPTS; attempt += 1) {
+    try {
+      return await publicClient.getTransactionReceipt({ hash: txHash });
+    } catch (error) {
+      if (!isReceiptPendingError(error)) {
+        throw error;
+      }
+
+      if (attempt < TX_RECEIPT_POLL_ATTEMPTS - 1) {
+        await sleep(TX_RECEIPT_POLL_INTERVAL_MS);
+      }
+    }
+  }
+
+  throw new HttpError(
+    409,
+    "TX_RECEIPT_PENDING",
+    "Transaction is still pending on-chain. Wait a few seconds and retry confirmation.",
+    {
+      txHash,
+      retryAfterSeconds: Math.ceil(TX_RECEIPT_POLL_INTERVAL_MS / 1000),
+    }
+  );
+};
+
 const ensureWalletOwnedByUser = async (userId: string, walletAddress: string, chainId: number): Promise<void> => {
   const normalizedAddress = normalizeAddress(walletAddress);
 
@@ -707,7 +756,7 @@ export const confirmCommitmentIntent = async (input: {
   }
 
   const [receipt, tx, commitmentTimestamp] = await Promise.all([
-    publicClient.getTransactionReceipt({ hash: txHash }),
+    getTransactionReceiptWithRetry(txHash),
     publicClient.getTransaction({ hash: txHash }),
     publicClient.readContract({
       address: intent.controllerAddress as Address,
@@ -908,7 +957,7 @@ export const confirmRegisterTransaction = async (input: {
   }
 
   const [receipt, tx] = await Promise.all([
-    publicClient.getTransactionReceipt({ hash: txHash }),
+    getTransactionReceiptWithRetry(txHash),
     publicClient.getTransaction({ hash: txHash }),
   ]);
 

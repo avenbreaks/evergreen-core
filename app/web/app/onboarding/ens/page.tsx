@@ -202,6 +202,29 @@ export default function EnsOnboardingPage() {
     return error instanceof Error ? error.message : fallback;
   };
 
+  const isPendingConfirmationError = (error: unknown): boolean => {
+    const message = ensureErrorMessage(error, "").toLowerCase();
+    return (
+      message.includes("tx_receipt_pending") ||
+      message.includes("pending on-chain") ||
+      message.includes("transaction receipt") ||
+      message.includes("not processed on a block yet") ||
+      message.includes("wait a few seconds")
+    );
+  };
+
+  const isRegisterRetryableError = (error: unknown): boolean => {
+    const message = ensureErrorMessage(error, "").toLowerCase();
+    return (
+      isPendingConfirmationError(error) ||
+      message.includes("commitment_not_ready") ||
+      message.includes("commitment not ready") ||
+      message.includes("commitment_not_found") ||
+      message.includes("commitment not found") ||
+      message.includes("wait")
+    );
+  };
+
   const completeIntentRegistration = async (input: {
     intentId: string;
     walletAddress: string;
@@ -332,10 +355,22 @@ export default function EnsOnboardingPage() {
         tx: intent.tx,
       });
 
-      await confirmEnsCommitmentIntent({
-        intentId: intent.intentId,
-        txHash: commitTxHash,
-      });
+      try {
+        await confirmEnsCommitmentIntent({
+          intentId: intent.intentId,
+          txHash: commitTxHash,
+        });
+      } catch (error) {
+        if (isPendingConfirmationError(error)) {
+          return {
+            status: "waiting" as const,
+            intentId: intent.intentId,
+            domainName: intent.domainName,
+          };
+        }
+
+        throw error;
+      }
 
       try {
         const registeredDomain = await completeIntentRegistration({
@@ -350,8 +385,7 @@ export default function EnsOnboardingPage() {
           domainName: registeredDomain,
         };
       } catch (error) {
-        const message = ensureErrorMessage(error, "Registration is not ready yet");
-        if (/not ready|commitment_not_ready|wait/i.test(message)) {
+        if (isRegisterRetryableError(error)) {
           return {
             status: "waiting" as const,
             intentId: intent.intentId,
@@ -386,6 +420,12 @@ export default function EnsOnboardingPage() {
       ]);
     },
     onError: (error) => {
+      if (isRegisterRetryableError(error)) {
+        setErrorMessage(null);
+        setInfoMessage("Transaction is still confirming. Wait a bit, then tap \"Complete purchase\" again.");
+        return;
+      }
+
       setInfoMessage(null);
       setErrorMessage(ensureErrorMessage(error, "Could not complete ENS purchase"));
     },
