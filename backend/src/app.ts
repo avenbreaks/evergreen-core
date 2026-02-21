@@ -14,6 +14,7 @@ import { registerOpsRetentionJob } from "./jobs/ops-retention";
 import { HttpError } from "./lib/http-error";
 import { apiKeyRoutes } from "./routes/api-keys";
 import { authBridgeRoutes } from "./routes/auth-bridge";
+import { emailVerificationRoutes } from "./routes/email-verification";
 import { ensRoutes } from "./routes/ens";
 import { forumRoutes } from "./routes/forum";
 import { healthRoutes } from "./routes/health";
@@ -55,6 +56,7 @@ export const buildApp = () => {
   app.register(healthRoutes);
   app.register(networkRoutes);
   app.register(authBridgeRoutes);
+  app.register(emailVerificationRoutes);
   app.register(passwordRoutes);
   app.register(siweRoutes);
   app.register(meRoutes);

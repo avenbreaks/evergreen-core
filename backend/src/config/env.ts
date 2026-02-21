@@ -104,6 +104,8 @@ const envSchema = z.object({
   API_KEY_CONCURRENCY_SLOT_TTL_SECONDS: z.coerce.number().int().positive().default(120),
   AUTH_ENDPOINT_SIGN_IN_EMAIL: z.string().regex(/^\/.+/).default("/api/auth/sign-in/email"),
   AUTH_ENDPOINT_SIGN_UP_EMAIL: z.string().regex(/^\/.+/).default("/api/auth/sign-up/email"),
+  AUTH_ENDPOINT_SEND_VERIFICATION_EMAIL: z.string().regex(/^\/.+/).default("/api/auth/send-verification-email"),
+  AUTH_ENDPOINT_VERIFY_EMAIL: z.string().regex(/^\/.+/).default("/api/auth/verify-email"),
   AUTH_ENDPOINT_REQUEST_PASSWORD_RESET: z.string().regex(/^\/.+/).default("/api/auth/request-password-reset"),
   AUTH_ENDPOINT_RESET_PASSWORD: z.string().regex(/^\/.+/).default("/api/auth/reset-password"),
   ENFORCE_SECURE_TRANSPORT: z.string().optional(),
@@ -208,6 +210,8 @@ export type BackendEnv = {
   authEndpoints: {
     signInEmail: string;
     signUpEmail: string;
+    sendVerificationEmail: string;
+    verifyEmail: string;
     requestPasswordReset: string;
     resetPassword: string;
   };
@@ -282,6 +286,8 @@ export const backendEnv: BackendEnv = {
   authEndpoints: {
     signInEmail: parsed.data.AUTH_ENDPOINT_SIGN_IN_EMAIL,
     signUpEmail: parsed.data.AUTH_ENDPOINT_SIGN_UP_EMAIL,
+    sendVerificationEmail: parsed.data.AUTH_ENDPOINT_SEND_VERIFICATION_EMAIL,
+    verifyEmail: parsed.data.AUTH_ENDPOINT_VERIFY_EMAIL,
     requestPasswordReset: parsed.data.AUTH_ENDPOINT_REQUEST_PASSWORD_RESET,
     resetPassword: parsed.data.AUTH_ENDPOINT_RESET_PASSWORD,
   },

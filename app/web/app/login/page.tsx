@@ -13,9 +13,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fetchSession, postJson, requestPasswordReset } from "@/lib/api-client";
+import { fetchSession, postJson, requestEmailVerification, requestPasswordReset } from "@/lib/api-client";
 
 type AuthMode = "signin" | "signup";
+
+type AuthMutationPayload = {
+  user?: {
+    emailVerified?: boolean;
+  } | null;
+} | null;
 
 const sanitizeNextPath = (value: string | null): string => {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/login")) {
@@ -23,6 +29,42 @@ const sanitizeNextPath = (value: string | null): string => {
   }
 
   return value;
+};
+
+const buildVerificationCallbackURL = (nextPath: string): string | undefined => {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  const params = new URLSearchParams();
+  params.set("verified", "1");
+  params.set("next", nextPath);
+
+  return `${window.location.origin}/login?${params.toString()}`;
+};
+
+const mapVerificationError = (error: string | null): string | null => {
+  if (!error) {
+    return null;
+  }
+
+  if (error === "token_expired") {
+    return "Verification link expired. Request a new verification email.";
+  }
+
+  if (error === "invalid_token") {
+    return "Invalid verification link. Request a new verification email.";
+  }
+
+  if (error === "user_not_found") {
+    return "Account for this verification token was not found.";
+  }
+
+  if (error === "unauthorized") {
+    return "Unauthorized verification request.";
+  }
+
+  return `Email verification failed: ${error}`;
 };
 
 export default function LoginPage() {
@@ -56,10 +98,13 @@ function LoginPageContent() {
   const nextPath = useMemo(() => sanitizeNextPath(searchParams.get("next")), [searchParams]);
   const modeFromQuery = searchParams.get("mode") === "signup" ? "signup" : "signin";
   const messageFromQuery = searchParams.get("message");
+  const errorFromQuery = searchParams.get("error");
+  const verifiedFromQuery = searchParams.get("verified") === "1";
+  const verificationErrorMessage = useMemo(() => mapVerificationError(errorFromQuery), [errorFromQuery]);
 
   const [mode, setMode] = useState<AuthMode>(modeFromQuery);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [infoMessage, setInfoMessage] = useState<string | null>(messageFromQuery || null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -75,25 +120,51 @@ function LoginPageContent() {
   }, [modeFromQuery]);
 
   useEffect(() => {
-    setInfoMessage(messageFromQuery || null);
-  }, [messageFromQuery]);
+    if (verificationErrorMessage) {
+      setErrorMessage(verificationErrorMessage);
+      setInfoMessage(null);
+      return;
+    }
+
+    if (messageFromQuery) {
+      setErrorMessage(null);
+      setInfoMessage(messageFromQuery);
+      return;
+    }
+
+    if (verifiedFromQuery) {
+      setErrorMessage(null);
+      setInfoMessage("Email verified. You can sign in now.");
+    }
+  }, [messageFromQuery, verifiedFromQuery, verificationErrorMessage]);
 
   useEffect(() => {
-    if (sessionQuery.data?.user?.id) {
+    if (sessionQuery.data?.user?.id && sessionQuery.data.user.emailVerified !== false) {
       router.replace(nextPath);
     }
-  }, [nextPath, router, sessionQuery.data?.user?.id]);
+  }, [nextPath, router, sessionQuery.data?.user?.emailVerified, sessionQuery.data?.user?.id]);
 
   const signUpMutation = useMutation({
-    mutationFn: (payload: { name: string; email: string; password: string }) => postJson("/api/auth/sign-up", payload),
-    onSuccess: async () => {
+    mutationFn: (payload: { name: string; email: string; password: string; callbackURL?: string }) =>
+      postJson<AuthMutationPayload>("/api/auth/sign-up", payload),
+    onSuccess: async (payload) => {
       setErrorMessage(null);
-      setInfoMessage("Account created. Redirecting...");
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["session"] }),
         queryClient.invalidateQueries({ queryKey: ["me"] }),
       ]);
-      router.replace(nextPath);
+
+      const emailVerified = payload?.user?.emailVerified === true;
+      if (emailVerified) {
+        setInfoMessage("Account created. Redirecting...");
+        router.replace(nextPath);
+        return;
+      }
+
+      setMode("signin");
+      setPassword("");
+      setInfoMessage("Account created. Check your inbox and verify your email before signing in.");
     },
     onError: (error) => {
       setInfoMessage(null);
@@ -114,14 +185,20 @@ function LoginPageContent() {
     },
     onError: (error) => {
       setInfoMessage(null);
-      setErrorMessage(error instanceof Error ? error.message : "Sign in failed");
+      const message = error instanceof Error ? error.message : "Sign in failed";
+      if (/verify/i.test(message) && /email/i.test(message)) {
+        setErrorMessage("Email not verified yet. Verify from your inbox first, then sign in.");
+        return;
+      }
+
+      setErrorMessage(message);
     },
   });
 
   const forgotPasswordMutation = useMutation({
     mutationFn: () =>
       requestPasswordReset({
-        email,
+        email: email.trim(),
         redirectTo: typeof window === "undefined" ? undefined : `${window.location.origin}/login`,
       }),
     onSuccess: () => {
@@ -134,26 +211,55 @@ function LoginPageContent() {
     },
   });
 
+  const resendVerificationMutation = useMutation({
+    mutationFn: () => {
+      const normalizedEmail = email.trim();
+      if (!normalizedEmail) {
+        throw new Error("Enter your email first.");
+      }
+
+      return requestEmailVerification({
+        email: normalizedEmail,
+        callbackURL: buildVerificationCallbackURL(nextPath),
+      });
+    },
+    onSuccess: () => {
+      setErrorMessage(null);
+      setInfoMessage("Verification email sent. Check your inbox.");
+    },
+    onError: (error) => {
+      setInfoMessage(null);
+      setErrorMessage(error instanceof Error ? error.message : "Could not send verification email");
+    },
+  });
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setErrorMessage(null);
 
+    const normalizedEmail = email.trim();
+
     if (mode === "signup") {
       signUpMutation.mutate({
         name,
-        email,
+        email: normalizedEmail,
         password,
+        callbackURL: buildVerificationCallbackURL(nextPath),
       });
       return;
     }
 
     signInMutation.mutate({
-      email,
+      email: normalizedEmail,
       password,
     });
   };
 
-  const isBusy = signUpMutation.isPending || signInMutation.isPending || forgotPasswordMutation.isPending;
+  const isBusy =
+    signUpMutation.isPending ||
+    signInMutation.isPending ||
+    forgotPasswordMutation.isPending ||
+    resendVerificationMutation.isPending;
 
   return (
     <div className="min-h-screen">
@@ -220,14 +326,25 @@ function LoginPageContent() {
               </div>
 
               {mode === "signin" ? (
-                <button
-                  type="button"
-                  className="text-xs text-primary hover:underline"
-                  disabled={!email || forgotPasswordMutation.isPending}
-                  onClick={() => forgotPasswordMutation.mutate()}
-                >
-                  Forgot password?
-                </button>
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  <button
+                    type="button"
+                    className="text-primary hover:underline"
+                    disabled={!email || forgotPasswordMutation.isPending}
+                    onClick={() => forgotPasswordMutation.mutate()}
+                  >
+                    Forgot password?
+                  </button>
+
+                  <button
+                    type="button"
+                    className="text-primary hover:underline"
+                    disabled={!email || resendVerificationMutation.isPending}
+                    onClick={() => resendVerificationMutation.mutate()}
+                  >
+                    {resendVerificationMutation.isPending ? "Sending verification..." : "Resend verification email"}
+                  </button>
+                </div>
               ) : null}
 
               {errorMessage ? <p className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive">{errorMessage}</p> : null}

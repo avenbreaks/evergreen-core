@@ -3,6 +3,7 @@ export type AuthSession = {
     id: string;
     name?: string | null;
     email?: string | null;
+    emailVerified?: boolean;
     image?: string | null;
   } | null;
   session?: {
@@ -528,6 +529,10 @@ export const confirmEnsRegisterTransaction = async (payload: {
 
 export const requestPasswordReset = async (payload: { email: string; redirectTo?: string }) => {
   return postJson<{ status?: boolean; message?: string }>("/api/password/forgot-password", payload);
+};
+
+export const requestEmailVerification = async (payload: { email: string; callbackURL?: string }) => {
+  return postJson<{ status?: boolean; message?: string }>("/api/email-verification/send", payload);
 };
 
 export const submitResetPassword = async (payload: { token: string; newPassword: string }) => {
